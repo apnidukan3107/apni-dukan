@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Search, ShoppingCart, Plus, Minus, X, ArrowLeft, Check,
   Settings, Package, ClipboardList, Trash2, Lock, Loader2
@@ -352,20 +352,29 @@ export default function ApniDukanApp() {
 
   if (loading) {
     return (
-      <div style={styles.appShell}>
-        <div style={{ ...styles.phoneFrame, alignItems: "center", justifyContent: "center", display: "flex" }}>
+      <div style={styles.appShell} className="app-shell">
+        <div style={{ ...styles.phoneFrame, alignItems: "center", justifyContent: "center", display: "flex" }} className="phone-frame">
           <Loader2 size={30} color="#2c2a26" className="spin" />
         </div>
-        <style>{`.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+        <style>{`.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+@media (max-width:480px){
+  .app-shell{padding:0 !important;}
+  .phone-frame{width:100% !important;height:100vh !important;max-height:none !important;border:none !important;border-radius:0 !important;box-shadow:none !important;}
+}`}</style>
       </div>
     );
   }
 
   return (
-    <div style={styles.appShell}>
+    <div style={styles.appShell} className="app-shell">
       <link rel="preconnect" href="https://fonts.googleapis.com" />
       <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Noto+Sans+Gujarati:wght@400;600;700;800&display=swap" rel="stylesheet" />
-      <div style={styles.phoneFrame}>
+      <style>{`
+@media (max-width:480px){
+  .app-shell{padding:0 !important;}
+  .phone-frame{width:100% !important;height:100vh !important;max-height:none !important;border:none !important;border-radius:0 !important;box-shadow:none !important;}
+}`}</style>
+      <div style={styles.phoneFrame} className="phone-frame">
         {/* TOP BAR */}
         <div style={styles.hazardStrip} />
         <div style={styles.topBar}>
