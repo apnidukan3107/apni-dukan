@@ -1,0 +1,21 @@
+{
+  "short_name": "Apni Dukan",
+  "name": "Apni Dukan - PIX Belts & Handtools",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#1F5C40",
+  "background_color": "#ECE8DA",
+  "orientation": "portrait"
+}
