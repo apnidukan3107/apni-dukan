@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Search, ShoppingCart, Plus, Minus, X, ArrowLeft, Check,
-  Settings, Package, ClipboardList, Trash2, Lock, Loader2
+  Settings, Package, ClipboardList, Trash2, Lock, Loader2,
+  Pencil, ImagePlus, Tag
 } from "lucide-react";
 // 🔧 PREVIEW MODE: Firebase has been swapped for in-memory storage so this
 // runs standalone here. Your real App.jsx (with Firebase) is untouched —
@@ -1081,6 +1082,16 @@ function formatRs(n) {
 function uid(prefix) {
   return prefix + "_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
+function formatOrderDate(iso) {
+  if (!iso) return "";
+  try {
+    const d = new Date(iso);
+    return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) +
+      " · " + d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return "";
+  }
+}
 
 export default function ApniDukanApp() {
   const [products, setProducts] = useState([]);
@@ -1099,7 +1110,11 @@ export default function ApniDukanApp() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [pinInput, setPinInput] = useState("");
   const [pinError, setPinError] = useState("");
-  const [newProduct, setNewProduct] = useState({ name: "", category: "કપડાં", price: "", img: "🛍️" });
+  const [newProduct, setNewProduct] = useState({ name: "", category: "કપડાં", price: "", img: "🛍️", image: "", stock: "" });
+  const [editingProductId, setEditingProductId] = useState(null);
+  const [customCategories, setCustomCategories] = useState([]);
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [showProductList, setShowProductList] = useState(false);
 
   // ---- load data on mount ----
   useEffect(() => {
@@ -1129,6 +1144,15 @@ export default function ApniDukanApp() {
           ord = [];
         }
         setOrders(ord || []);
+
+        let cats = [];
+        try {
+          const res3 = await storageGet("customCategories");
+          cats = res3 ? JSON.parse(res3.value) : [];
+        } catch {
+          cats = [];
+        }
+        setCustomCategories(cats || []);
       } catch (e) {
         setLoadError("ડેટા લોડ કરવામાં તકલીફ થઈ. ફરી પ્રયત્ન કરો.");
       } finally {
@@ -1141,8 +1165,15 @@ export default function ApniDukanApp() {
     const cats = new Set(products.map((p) => p.category));
     const ordered = CATEGORIES_DEFAULT.filter((c) => cats.has(c));
     const extra = Array.from(cats).filter((c) => !CATEGORIES_DEFAULT.includes(c));
-    return ["બધું", ...ordered, ...extra];
-  }, [products]);
+    const extraCustom = customCategories.filter((c) => !ordered.includes(c) && !extra.includes(c));
+    return ["બધું", ...ordered, ...extra, ...extraCustom];
+  }, [products, customCategories]);
+
+  // full list of category options for the admin add/edit-product dropdown
+  const allCategoryOptions = useMemo(() => {
+    const merged = new Set([...CATEGORIES_DEFAULT, ...customCategories, ...products.map((p) => p.category)]);
+    return Array.from(merged);
+  }, [customCategories, products]);
 
   const filtered = useMemo(() => {
     return products.filter((p) => {
@@ -1208,7 +1239,7 @@ export default function ApniDukanApp() {
       const res = await storageSet("orders", JSON.stringify(nextOrders));
       setOrders(nextOrders);
       setCart({});
-      setLastOrderId(order.id);
+      setLastOrderId(String(nextOrders.length));
       setView("success");
       setCheckoutForm({ name: "", phone: "", address: "" });
       if (!res) {
@@ -1219,7 +1250,7 @@ export default function ApniDukanApp() {
       const nextOrders = [order, ...orders];
       setOrders(nextOrders);
       setCart({});
-      setLastOrderId(order.id);
+      setLastOrderId(String(nextOrders.length));
       setView("success");
       setCheckoutForm({ name: "", phone: "", address: "" });
       setLoadError("ઓર્ડર થઈ ગયો, પણ સર્વર સાથે સેવ ના થયું: " + (e && e.message ? e.message : "અજાણી ભૂલ"));
@@ -1249,28 +1280,99 @@ export default function ApniDukanApp() {
     }
   }
 
-  async function addProduct() {
+  async function saveProduct() {
     if (!newProduct.name.trim() || !newProduct.price) return;
-    const p = {
-      id: uid("p"),
-      name: newProduct.name.trim(),
-      category: newProduct.category,
-      price: Number(newProduct.price),
-      img: newProduct.img || "🛍️",
-    };
-    const next = [p, ...products];
+    const stockVal = newProduct.stock === "" ? undefined : Number(newProduct.stock);
+    let next;
+    if (editingProductId) {
+      next = products.map((p) =>
+        p.id === editingProductId
+          ? {
+              ...p,
+              name: newProduct.name.trim(),
+              category: newProduct.category,
+              price: Number(newProduct.price),
+              img: newProduct.img || "🛍️",
+              image: newProduct.image || p.image,
+              stock: stockVal,
+            }
+          : p
+      );
+    } else {
+      const p = {
+        id: uid("p"),
+        name: newProduct.name.trim(),
+        category: newProduct.category,
+        price: Number(newProduct.price),
+        img: newProduct.img || "🛍️",
+        image: newProduct.image || undefined,
+        stock: stockVal,
+      };
+      next = [p, ...products];
+    }
     setProducts(next);
-    setNewProduct({ name: "", category: newProduct.category, price: "", img: "🛍️" });
+    setNewProduct({ name: "", category: newProduct.category, price: "", img: "🛍️", image: "", stock: "" });
+    setEditingProductId(null);
     try {
       await storageSet("products", JSON.stringify(next));
     } catch {}
   }
 
+  function startEditProduct(p) {
+    setEditingProductId(p.id);
+    setNewProduct({
+      name: p.name || "",
+      category: p.category || allCategoryOptions[0] || "",
+      price: p.price != null ? String(p.price) : "",
+      img: p.img || "🛍️",
+      image: p.image || "",
+      stock: p.stock != null ? String(p.stock) : "",
+    });
+  }
+
+  function cancelEditProduct() {
+    setEditingProductId(null);
+    setNewProduct({ name: "", category: newProduct.category, price: "", img: "🛍️", image: "", stock: "" });
+  }
+
+  function handleProductImageFile(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setNewProduct((f) => ({ ...f, image: reader.result }));
+    };
+    reader.readAsDataURL(file);
+  }
+
   async function deleteProduct(id) {
     const next = products.filter((p) => p.id !== id);
     setProducts(next);
+    if (editingProductId === id) cancelEditProduct();
     try {
       await storageSet("products", JSON.stringify(next));
+    } catch {}
+  }
+
+  async function addCategory() {
+    const name = newCategoryName.trim();
+    if (!name) return;
+    if (CATEGORIES_DEFAULT.includes(name) || customCategories.includes(name)) {
+      setNewCategoryName("");
+      return;
+    }
+    const next = [...customCategories, name];
+    setCustomCategories(next);
+    setNewCategoryName("");
+    try {
+      await storageSet("customCategories", JSON.stringify(next));
+    } catch {}
+  }
+
+  async function deleteCategory(name) {
+    const next = customCategories.filter((c) => c !== name);
+    setCustomCategories(next);
+    try {
+      await storageSet("customCategories", JSON.stringify(next));
     } catch {}
   }
 
@@ -1573,13 +1675,14 @@ export default function ApniDukanApp() {
               </button>
               <div style={styles.adminSectionTitle}><ClipboardList size={16} /> ઓર્ડર્સ ({orders.length})</div>
               {orders.length === 0 && <p style={{ color: "#a49c88", fontSize: 13 }}>હજુ કોઈ ઓર્ડર નથી.</p>}
-              {orders.map((o) => (
+              {orders.map((o, idx) => (
                 <div key={o.id} style={styles.orderCard}>
                   <div style={styles.orderTopRow}>
-                    <span style={{ fontWeight: 700, fontSize: 12 }}>{o.customer.name}</span>
+                    <span style={{ fontWeight: 700, fontSize: 12 }}>ઓર્ડર #{orders.length - idx} · {o.customer.name}</span>
                     <span style={styles.orderStatusTag}>{o.status}</span>
                   </div>
-                  <div style={{ fontSize: 11, color: "#8a8378" }}>{o.customer.phone}</div>
+                  <div style={{ fontSize: 10.5, color: "#a49c88", marginTop: 2 }}>{formatOrderDate(o.createdAt)}</div>
+                  <div style={{ fontSize: 11, color: "#8a8378", marginTop: 4 }}>{o.customer.phone}</div>
                   <div style={{ fontSize: 11, color: "#8a8378", marginBottom: 4 }}>{o.customer.address}</div>
                   <div style={{ fontSize: 12, color: "#2c2a26" }}>
                     {o.items.map((i) => `${i.name} x${i.qty}`).join(", ")}
@@ -1599,7 +1702,44 @@ export default function ApniDukanApp() {
                 </div>
               ))}
 
-              <div style={{ ...styles.adminSectionTitle, marginTop: 24 }}><Package size={16} /> પ્રોડક્ટ ઉમેરો</div>
+              <div style={{ ...styles.adminSectionTitle, marginTop: 24 }}><Tag size={16} /> કેટેગરી મેનેજ કરો</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input
+                  style={{ ...styles.textInput, flex: 1 }}
+                  placeholder="નવી કેટેગરીનું નામ"
+                  value={newCategoryName}
+                  onChange={(e) => setNewCategoryName(e.target.value)}
+                />
+                <button
+                  style={{ ...styles.primaryBtn, width: 80, marginTop: 0, padding: "0 10px" }}
+                  onClick={addCategory}
+                >
+                  ઉમેરો
+                </button>
+              </div>
+              {customCategories.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
+                  {customCategories.map((c) => (
+                    <div
+                      key={c}
+                      style={{ display: "flex", alignItems: "center", gap: 4, background: T.surface2, border: `1px solid ${T.hairline}`, borderRadius: 999, padding: "4px 6px 4px 10px", fontSize: 11.5, color: T.ink }}
+                    >
+                      {c}
+                      <button
+                        style={{ background: "none", border: "none", cursor: "pointer", padding: 2, display: "flex" }}
+                        onClick={() => deleteCategory(c)}
+                        aria-label="કેટેગરી કાઢી નાખો"
+                      >
+                        <X size={12} color="#b23b3b" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div style={{ ...styles.adminSectionTitle, marginTop: 24 }}>
+                <Package size={16} /> {editingProductId ? "પ્રોડક્ટ અપડેટ કરો" : "પ્રોડક્ટ ઉમેરો"}
+              </div>
               <input
                 style={styles.textInput}
                 placeholder="પ્રોડક્ટનું નામ"
@@ -1612,7 +1752,7 @@ export default function ApniDukanApp() {
                   value={newProduct.category}
                   onChange={(e) => setNewProduct((f) => ({ ...f, category: e.target.value }))}
                 >
-                  {CATEGORIES_DEFAULT.map((c) => <option key={c} value={c}>{c}</option>)}
+                  {allCategoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
                 <input
                   style={{ ...styles.textInput, width: 90 }}
@@ -1622,23 +1762,110 @@ export default function ApniDukanApp() {
                   onChange={(e) => setNewProduct((f) => ({ ...f, price: e.target.value }))}
                 />
               </div>
-              <input
-                style={{ ...styles.textInput, marginTop: 8 }}
-                placeholder="ઇમોજી (દા.ત. 👕)"
-                value={newProduct.img}
-                onChange={(e) => setNewProduct((f) => ({ ...f, img: e.target.value }))}
-              />
-              <button style={styles.primaryBtn} onClick={addProduct}>પ્રોડક્ટ ઉમેરો</button>
+              <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                <input
+                  style={{ ...styles.textInput, flex: 1 }}
+                  placeholder="ઇમોજી (દા.ત. 👕)"
+                  value={newProduct.img}
+                  onChange={(e) => setNewProduct((f) => ({ ...f, img: e.target.value }))}
+                />
+                <input
+                  style={{ ...styles.textInput, width: 90 }}
+                  placeholder="સ્ટોક"
+                  type="number"
+                  value={newProduct.stock}
+                  onChange={(e) => setNewProduct((f) => ({ ...f, stock: e.target.value }))}
+                />
+              </div>
 
-              <div style={{ ...styles.adminSectionTitle, marginTop: 24 }}><Package size={16} /> બધા પ્રોડક્ટ્સ ({products.length})</div>
-              {products.map((p) => (
-                <div key={p.id} style={styles.productRow}>
-                  <span style={{ fontSize: 20 }}>{p.img}</span>
+              <label style={{ ...styles.label, margin: "12px 0 6px" }}>પ્રોડક્ટ ફોટો</label>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                {newProduct.image ? (
+                  <img src={newProduct.image} alt="preview" style={{ width: 48, height: 48, objectFit: "cover", borderRadius: 8, border: `1px solid ${T.hairline}` }} />
+                ) : (
+                  <div style={{ width: 48, height: 48, borderRadius: 8, border: `1px dashed ${T.hairline}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>
+                    {newProduct.img || "🛍️"}
+                  </div>
+                )}
+                <label
+                  style={{ ...styles.textInput, flex: 1, display: "flex", alignItems: "center", gap: 6, cursor: "pointer", color: T.inkSoft }}
+                >
+                  <ImagePlus size={15} />
+                  {newProduct.image ? "ફોટો બદલો" : "ફોટો અપલોડ કરો"}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    style={{ display: "none" }}
+                    onChange={(e) => handleProductImageFile(e.target.files && e.target.files[0])}
+                  />
+                </label>
+                {newProduct.image && (
+                  <button
+                    style={{ background: "none", border: "none", cursor: "pointer" }}
+                    onClick={() => setNewProduct((f) => ({ ...f, image: "" }))}
+                    aria-label="ફોટો કાઢી નાખો"
+                  >
+                    <X size={16} color="#b23b3b" />
+                  </button>
+                )}
+              </div>
+
+              <div style={{ display: "flex", gap: 8 }}>
+                <button style={{ ...styles.primaryBtn, flex: 1 }} onClick={saveProduct}>
+                  {editingProductId ? "અપડેટ કરો" : "પ્રોડક્ટ ઉમેરો"}
+                </button>
+                {editingProductId && (
+                  <button
+                    style={{ ...styles.primaryBtn, flex: 1, background: T.surface2, color: T.inkSoft, boxShadow: "none" }}
+                    onClick={cancelEditProduct}
+                  >
+                    રદ કરો
+                  </button>
+                )}
+              </div>
+
+              <button
+                style={{
+                  ...styles.adminSectionTitle,
+                  marginTop: 24,
+                  width: "100%",
+                  background: T.surface2,
+                  border: `1px solid ${T.hairline}`,
+                  borderRadius: 10,
+                  padding: "12px 12px",
+                  cursor: "pointer",
+                  justifyContent: "space-between",
+                  fontFamily: "inherit",
+                  textTransform: "none",
+                  letterSpacing: 0,
+                }}
+                onClick={() => setShowProductList((v) => !v)}
+              >
+                <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <Package size={16} /> બધા પ્રોડક્ટ્સ ({products.length})
+                </span>
+                <span style={{ fontSize: 11, color: T.inkSoft, fontWeight: 700 }}>
+                  {showProductList ? "છુપાવો ▲" : "જુઓ ▼"}
+                </span>
+              </button>
+              {showProductList && products.map((p) => (
+                <div key={p.id} style={{ ...styles.productRow, ...(editingProductId === p.id ? { background: T.surface2, borderRadius: 8 } : {}) }}>
+                  {p.image ? (
+                    <img src={p.image} alt={p.name} style={{ width: 28, height: 28, objectFit: "cover", borderRadius: 6 }} />
+                  ) : (
+                    <span style={{ fontSize: 20 }}>{p.img}</span>
+                  )}
                   <div style={{ flex: 1, marginLeft: 8 }}>
                     <div style={{ fontSize: 12, fontWeight: 600 }}>{p.name}</div>
-                    <div style={{ fontSize: 11, color: "#8a8378" }}>{p.category} · {formatRs(p.price)}</div>
+                    <div style={{ fontSize: 11, color: "#8a8378" }}>
+                      {p.category} · {formatRs(p.price)}
+                      {p.stock != null && p.stock !== "" ? ` · સ્ટોક: ${p.stock}` : ""}
+                    </div>
                   </div>
-                  <button style={styles.removeBtn} onClick={() => deleteProduct(p.id)}>
+                  <button style={styles.removeBtn} onClick={() => startEditProduct(p)} aria-label="એડિટ કરો">
+                    <Pencil size={15} color={T.inkSoft} />
+                  </button>
+                  <button style={styles.removeBtn} onClick={() => deleteProduct(p.id)} aria-label="કાઢી નાખો">
                     <Trash2 size={15} color="#b23b3b" />
                   </button>
                 </div>
