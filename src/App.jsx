@@ -4,16 +4,46 @@ import {
   Settings, Package, ClipboardList, Trash2, Lock, Loader2,
   Pencil, ImagePlus, Tag
 } from "lucide-react";
-// 🔧 PREVIEW MODE: Firebase has been swapped for in-memory storage so this
-// runs standalone here. Your real App.jsx (with Firebase) is untouched —
-// this is just a copy for previewing the UI/UX.
-const _memoryStore = {};
+import { initializeApp } from "firebase/app";
+import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "firebase/firestore";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyC9oJrhtVRE91_fF8FHEWXbcBJnY-916Zc",
+  authDomain: "apni-dukan-b8e19.firebaseapp.com",
+  projectId: "apni-dukan-b8e19",
+  storageBucket: "apni-dukan-b8e19.firebasestorage.app",
+  messagingSenderId: "723874285858",
+  appId: "1:723874285858:web:42e670642150b873187d7b",
+  measurementId: "G-FV6DETYSTG"
+};
+
+const firebaseApp = initializeApp(firebaseConfig);
+const db = getFirestore(firebaseApp);
+
+// Firestore-backed storage — every key (products / orders / customCategories)
+// is stored as one document inside the "store" collection, matching the
+// Firestore security rules from the README (match /store/{docId}).
 async function storageGet(key) {
-  return key in _memoryStore ? { value: JSON.stringify(_memoryStore[key]) } : null;
+  const snap = await getDoc(doc(db, "store", key));
+  return snap.exists() ? { value: snap.data().value } : null;
 }
 async function storageSet(key, value) {
-  _memoryStore[key] = JSON.parse(value);
+  await setDoc(doc(db, "store", key), { value });
   return true;
+}
+// Real-time listener — used for orders so the admin panel updates instantly
+// on every device/session the moment a new order comes in, without needing
+// a manual page refresh. This is what fixes "admin panel me order nahi dikhta".
+function storageListen(key, onChange) {
+  return onSnapshot(
+    doc(db, "store", key),
+    (snap) => {
+      if (snap.exists()) onChange(snap.data().value);
+    },
+    (err) => {
+      console.error("storageListen error for", key, err);
+    }
+  );
 }
 
 const CATEGORIES_DEFAULT = ["Handtools", "PIX", "Ecodrive", "Oil Seal", "Safety Material", "બીજું", "Maintenance Products", "Pneumatic Fittings", "Nut Bolt N Washer"];
@@ -1136,15 +1166,6 @@ export default function ApniDukanApp() {
         }
         setProducts(prod);
 
-        let ord = [];
-        try {
-          const res2 = await storageGet("orders");
-          ord = res2 ? JSON.parse(res2.value) : [];
-        } catch {
-          ord = [];
-        }
-        setOrders(ord || []);
-
         let cats = [];
         try {
           const res3 = await storageGet("customCategories");
@@ -1159,6 +1180,19 @@ export default function ApniDukanApp() {
         setLoading(false);
       }
     })();
+  }, []);
+
+  // Live orders — real-time Firestore listener so every new order shows up
+  // in the admin panel immediately, on any device, without a manual refresh.
+  useEffect(() => {
+    const unsubscribe = storageListen("orders", (rawValue) => {
+      try {
+        setOrders(JSON.parse(rawValue) || []);
+      } catch {
+        setOrders([]);
+      }
+    });
+    return () => unsubscribe();
   }, []);
 
   const categories = useMemo(() => {
@@ -1235,7 +1269,12 @@ export default function ApniDukanApp() {
       createdAt: new Date().toISOString(),
     };
     try {
-      const nextOrders = [order, ...orders];
+      let freshOrders = orders;
+      try {
+        const freshRes = await storageGet("orders");
+        if (freshRes) freshOrders = JSON.parse(freshRes.value) || [];
+      } catch {}
+      const nextOrders = [order, ...freshOrders];
       const res = await storageSet("orders", JSON.stringify(nextOrders));
       setOrders(nextOrders);
       setCart({});
@@ -1260,7 +1299,12 @@ export default function ApniDukanApp() {
   }
 
   async function updateOrderStatus(orderId, status) {
-    const next = orders.map((o) => (o.id === orderId ? { ...o, status } : o));
+    let base = orders;
+    try {
+      const freshRes = await storageGet("orders");
+      if (freshRes) base = JSON.parse(freshRes.value) || [];
+    } catch {}
+    const next = base.map((o) => (o.id === orderId ? { ...o, status } : o));
     setOrders(next);
     try {
       await storageSet("orders", JSON.stringify(next));
