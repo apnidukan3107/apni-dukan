@@ -1161,6 +1161,10 @@ export default function ApniDukanApp() {
   const [customCategories, setCustomCategories] = useState([]);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [showProductList, setShowProductList] = useState(false);
+  const [bulkCategory, setBulkCategory] = useState("");
+  const [bulkImage, setBulkImage] = useState("");
+  const [bulkOnlyMissing, setBulkOnlyMissing] = useState(true);
+  const [bulkStatus, setBulkStatus] = useState("");
 
   // ---- load data on mount ----
   useEffect(() => {
@@ -1402,6 +1406,38 @@ export default function ApniDukanApp() {
       setNewProduct((f) => ({ ...f, image: reader.result }));
     };
     reader.readAsDataURL(file);
+  }
+
+  function handleBulkImageFile(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setBulkImage(reader.result);
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function applyBulkCategoryImage() {
+    if (!bulkCategory || !bulkImage) return;
+    const next = products.map((p) => {
+      if (p.category !== bulkCategory) return p;
+      if (bulkOnlyMissing && p.image) return p;
+      return { ...p, image: bulkImage };
+    });
+    setProducts(next);
+    setBulkStatus("સેવ થાય છે...");
+    try {
+      const res = await storageSet("products", JSON.stringify(next));
+      if (res) {
+        const count = next.filter((p) => p.category === bulkCategory).length;
+        setBulkStatus(`✅ ${count} પ્રોડક્ટ્સમાં ફોટો લાગુ થયો`);
+      } else {
+        setBulkStatus("⚠️ સેવ કરવામાં તકલીફ પડી");
+      }
+    } catch {
+      setBulkStatus("⚠️ સેવ કરવામાં તકલીફ પડી");
+    }
+    setTimeout(() => setBulkStatus(""), 3000);
   }
 
   async function deleteProduct(id) {
@@ -1796,6 +1832,68 @@ export default function ApniDukanApp() {
                   ))}
                 </div>
               )}
+
+              <div style={{ ...styles.adminSectionTitle, marginTop: 24 }}>
+                <ImagePlus size={16} /> કેટેગરી પ્રમાણે ફોટો લગાવો (Bulk)
+              </div>
+              <p style={{ fontSize: 11.5, color: "#8a8378", marginTop: -4, marginBottom: 10 }}>
+                એક કેટેગરીના બધા પ્રોડક્ટ્સમાં એક જ ફોટો એકસાથે લગાવો.
+              </p>
+              <select
+                style={styles.textInput}
+                value={bulkCategory}
+                onChange={(e) => setBulkCategory(e.target.value)}
+              >
+                <option value="">-- કેટેગરી પસંદ કરો --</option>
+                {allCategoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <label
+                style={{
+                  ...styles.textInput,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  marginTop: 8,
+                  cursor: "pointer",
+                  color: bulkImage ? T.ink : "#8a8378",
+                }}
+              >
+                <ImagePlus size={15} />
+                {bulkImage ? "ફોટો પસંદ થયો ✓" : "ફોટો પસંદ કરો"}
+                <input
+                  type="file"
+                  accept="image/*"
+                  style={{ display: "none" }}
+                  onChange={(e) => handleBulkImageFile(e.target.files?.[0])}
+                />
+              </label>
+              {bulkImage && (
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8 }}>
+                  <img src={bulkImage} alt="preview" style={{ width: 44, height: 44, borderRadius: 8, objectFit: "cover", border: `1px solid ${T.hairline}` }} />
+                  <button
+                    style={{ background: "none", border: "none", color: "#b23b3b", fontSize: 12, cursor: "pointer" }}
+                    onClick={() => setBulkImage("")}
+                  >
+                    હટાવો
+                  </button>
+                </div>
+              )}
+              <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, fontSize: 12.5, color: T.inkSoft }}>
+                <input
+                  type="checkbox"
+                  checked={bulkOnlyMissing}
+                  onChange={(e) => setBulkOnlyMissing(e.target.checked)}
+                />
+                ફક્ત જેમાં ફોટો નથી એમાં જ લગાવો (existing ફોટો સેફ રહેશે)
+              </label>
+              <button
+                style={{ ...styles.primaryBtn, opacity: bulkCategory && bulkImage ? 1 : 0.5 }}
+                onClick={applyBulkCategoryImage}
+                disabled={!bulkCategory || !bulkImage}
+              >
+                {bulkCategory ? `"${bulkCategory}" ના બધા પ્રોડક્ટ્સમાં લગાવો` : "કેટેગરી પસંદ કરો"}
+              </button>
+              {bulkStatus && <p style={{ fontSize: 12, marginTop: 6, fontWeight: 700 }}>{bulkStatus}</p>}
 
               <div style={{ ...styles.adminSectionTitle, marginTop: 24 }}>
                 <Package size={16} /> {editingProductId ? "પ્રોડક્ટ અપડેટ કરો" : "પ્રોડક્ટ ઉમેરો"}
