@@ -1216,6 +1216,22 @@ export default function ApniDukanApp() {
     return () => unsubscribe();
   }, []);
 
+  // Live products — real-time Firestore listener so every device always has
+  // the LATEST product list (including newly added photos) in memory. This
+  // fixes the bug where an old browser tab/device, still holding stale data,
+  // would overwrite fresh photos when it later saved anything (stock change,
+  // new product, etc.) — because that stale array is now kept continuously
+  // up to date instead of only being loaded once when the page first opened.
+  useEffect(() => {
+    const unsubscribe = storageListen("products", (rawValue) => {
+      try {
+        const fresh = JSON.parse(rawValue) || [];
+        if (fresh.length > 0) setProducts(fresh);
+      } catch {}
+    });
+    return () => unsubscribe();
+  }, []);
+
   const categories = useMemo(() => {
     const cats = new Set(products.map((p) => p.category));
     const ordered = CATEGORIES_DEFAULT.filter((c) => cats.has(c));
