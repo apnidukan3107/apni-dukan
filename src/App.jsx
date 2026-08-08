@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { initializeApp } from "firebase/app";
 import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "firebase/firestore";
+import { getStorage, ref, uploadString, getDownloadURL } from "firebase/storage";
 
 const firebaseConfig = {
   apiKey: "AIzaSyC9oJrhtVRE91_fF8FHEWXbcBJnY-916Zc",
@@ -19,6 +20,20 @@ const firebaseConfig = {
 
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp);
+const storage = getStorage(firebaseApp);
+
+// Uploads a photo (as a data-URL from FileReader) to Firebase Storage and
+// returns its public download URL. We use Storage instead of saving the
+// base64 directly inside the Firestore "products" document because
+// Firestore documents are capped at 1MB — with 1000+ products that limit
+// gets hit fast and causes silent save failures. Storage has no such limit;
+// Firestore only ever holds a short URL string per product image now.
+async function uploadProductImage(dataUrl, keyHint) {
+  const path = `product-images/${keyHint}-${Date.now()}.jpg`;
+  const imgRef = ref(storage, path);
+  await uploadString(imgRef, dataUrl, "data_url");
+  return await getDownloadURL(imgRef);
+}
 
 // Firestore-backed storage — every key (products / orders / customCategories)
 // is stored as one document inside the "store" collection, matching the
@@ -1166,6 +1181,11 @@ export default function ApniDukanApp() {
   const [bulkImage, setBulkImage] = useState("");
   const [bulkOnlyMissing, setBulkOnlyMissing] = useState(true);
   const [bulkStatus, setBulkStatus] = useState("");
+  const [deleteCategoryName, setDeleteCategoryName] = useState("");
+  const [deleteConfirming, setDeleteConfirming] = useState(false);
+  const [mergeSourceCategories, setMergeSourceCategories] = useState([]);
+  const [mergeTargetCategory, setMergeTargetCategory] = useState("");
+  const [categoryOpStatus, setCategoryOpStatus] = useState("");
 
   // ---- load data on mount ----
   useEffect(() => {
@@ -1364,6 +1384,23 @@ export default function ApniDukanApp() {
   async function saveProduct() {
     if (!newProduct.name.trim() || !newProduct.price) return;
     const stockVal = newProduct.stock === "" ? undefined : Number(newProduct.stock);
+
+    // If a fresh photo was picked, it's currently a big base64 data-URL —
+    // upload it to Firebase Storage first and swap in the short download
+    // URL so the Firestore document stays tiny no matter how many photos
+    // get added over time.
+    let imageToSave = newProduct.image;
+    if (imageToSave && imageToSave.startsWith("data:")) {
+      try {
+        setBulkStatus("ફોટો અપલોડ થાય છે...");
+        imageToSave = await uploadProductImage(imageToSave, editingProductId || "new");
+      } catch (e) {
+        setBulkStatus("⚠️ ફોટો અપલોડ કરવામાં તકલીફ પડી");
+        setTimeout(() => setBulkStatus(""), 3000);
+        return;
+      }
+    }
+
     let next;
     if (editingProductId) {
       next = products.map((p) =>
@@ -1374,7 +1411,7 @@ export default function ApniDukanApp() {
               category: newProduct.category,
               price: Number(newProduct.price),
               img: newProduct.img || "🛍️",
-              image: newProduct.image || p.image,
+              image: imageToSave || p.image,
               stock: stockVal,
             }
           : p
@@ -1386,7 +1423,7 @@ export default function ApniDukanApp() {
         category: newProduct.category,
         price: Number(newProduct.price),
         img: newProduct.img || "🛍️",
-        image: newProduct.image || undefined,
+        image: imageToSave || undefined,
         stock: stockVal,
       };
       next = [p, ...products];
@@ -1396,7 +1433,12 @@ export default function ApniDukanApp() {
     setEditingProductId(null);
     try {
       await storageSet("products", JSON.stringify(next));
-    } catch {}
+      setBulkStatus("✅ સેવ થયું");
+      setTimeout(() => setBulkStatus(""), 2000);
+    } catch {
+      setBulkStatus("⚠️ સેવ કરવામાં તકલીફ પડી");
+      setTimeout(() => setBulkStatus(""), 3000);
+    }
   }
 
   function startEditProduct(p) {
@@ -1425,6 +1467,55 @@ export default function ApniDukanApp() {
     reader.readAsDataURL(file);
   }
 
+  async function deleteAllProductsInCategory() {
+    if (!deleteCategoryName) return;
+    const next = products.filter((p) => p.category !== deleteCategoryName);
+    const removedCount = products.length - next.length;
+    setProducts(next);
+    setCategoryOpStatus("ડિલીટ થાય છે...");
+    try {
+      const res = await storageSet("products", JSON.stringify(next));
+      setCategoryOpStatus(res ? `✅ "${deleteCategoryName}" ના ${removedCount} પ્રોડક્ટ્સ ડિલીટ થયા (ટેબ રહેશે)` : "⚠️ તકલીફ પડી");
+    } catch {
+      setCategoryOpStatus("⚠️ તકલીફ પડી");
+    }
+    setDeleteConfirming(false);
+    setDeleteCategoryName("");
+    setTimeout(() => setCategoryOpStatus(""), 4000);
+  }
+
+  function toggleMergeSource(cat) {
+    setMergeSourceCategories((prev) =>
+      prev.includes(cat) ? prev.filter((c) => c !== cat) : [...prev, cat]
+    );
+  }
+
+  async function mergeCategoriesIntoNew() {
+    if (mergeSourceCategories.length === 0 || !mergeTargetCategory.trim()) return;
+    const targetName = mergeTargetCategory.trim();
+    const next = products.map((p) =>
+      mergeSourceCategories.includes(p.category) ? { ...p, category: targetName } : p
+    );
+    const movedCount = next.filter((p) => p.category === targetName).length;
+    setProducts(next);
+    setCategoryOpStatus("સેવ થાય છે...");
+    try {
+      const res = await storageSet("products", JSON.stringify(next));
+      if (res && !CATEGORIES_DEFAULT.includes(targetName) && !customCategories.includes(targetName)) {
+        const nextCats = [...customCategories, targetName];
+        setCustomCategories(nextCats);
+        await storageSet("customCategories", JSON.stringify(nextCats));
+      }
+      setCategoryOpStatus(res ? `✅ ${movedCount} પ્રોડક્ટ્સ "${targetName}" માં ખસેડાયા` : "⚠️ તકલીફ પડી");
+    } catch {
+      setCategoryOpStatus("⚠️ તકલીફ પડી");
+    }
+    setMergeSourceCategories([]);
+    setMergeTargetCategory("");
+    setTimeout(() => setCategoryOpStatus(""), 4000);
+  }
+
+
   function handleBulkImageFile(file) {
     if (!file) return;
     const reader = new FileReader();
@@ -1436,12 +1527,23 @@ export default function ApniDukanApp() {
 
   async function applyBulkCategoryImage() {
     if (!bulkCategory || !bulkImage) return;
+    let uploadedUrl = bulkImage;
+    if (bulkImage.startsWith("data:")) {
+      try {
+        setBulkStatus("ફોટો અપલોડ થાય છે...");
+        uploadedUrl = await uploadProductImage(bulkImage, `bulk-${bulkCategory}`);
+      } catch {
+        setBulkStatus("⚠️ ફોટો અપલોડ કરવામાં તકલીફ પડી");
+        setTimeout(() => setBulkStatus(""), 3000);
+        return;
+      }
+    }
     const kw = bulkKeyword.trim().toLowerCase();
     const next = products.map((p) => {
       if (p.category !== bulkCategory) return p;
       if (kw && !p.name.toLowerCase().includes(kw)) return p;
       if (bulkOnlyMissing && p.image) return p;
-      return { ...p, image: bulkImage };
+      return { ...p, image: uploadedUrl };
     });
     setProducts(next);
     setBulkStatus("સેવ થાય છે...");
@@ -1853,6 +1955,87 @@ export default function ApniDukanApp() {
                   ))}
                 </div>
               )}
+
+              <div style={{ ...styles.adminSectionTitle, marginTop: 24 }}>
+                <Trash2 size={16} /> કેટેગરીના બધા પ્રોડક્ટ્સ ડિલીટ કરો
+              </div>
+              <p style={{ fontSize: 11.5, color: "#8a8378", marginTop: -4, marginBottom: 10 }}>
+                ટેબ/કેટેગરી રહેશે, ફક્ત એમાંના પ્રોડક્ટ્સ કાઢી નંખાશે.
+              </p>
+              <select
+                style={styles.textInput}
+                value={deleteCategoryName}
+                onChange={(e) => { setDeleteCategoryName(e.target.value); setDeleteConfirming(false); }}
+              >
+                <option value="">-- કેટેગરી પસંદ કરો --</option>
+                {allCategoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+              {!deleteConfirming ? (
+                <button
+                  style={{ ...styles.primaryBtn, background: "#b23b3b", opacity: deleteCategoryName ? 1 : 0.5 }}
+                  disabled={!deleteCategoryName}
+                  onClick={() => setDeleteConfirming(true)}
+                >
+                  {deleteCategoryName ? `"${deleteCategoryName}" ના પ્રોડક્ટ્સ ડિલીટ કરો` : "કેટેગરી પસંદ કરો"}
+                </button>
+              ) : (
+                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                  <button
+                    style={{ ...styles.primaryBtn, background: "#b23b3b", flex: 1, marginTop: 0 }}
+                    onClick={deleteAllProductsInCategory}
+                  >
+                    હા, પાક્કું ડિલીટ કરો
+                  </button>
+                  <button
+                    style={{ ...styles.primaryBtn, background: T.surface2, color: T.ink, flex: 1, marginTop: 0 }}
+                    onClick={() => setDeleteConfirming(false)}
+                  >
+                    રદ કરો
+                  </button>
+                </div>
+              )}
+
+              <div style={{ ...styles.adminSectionTitle, marginTop: 24 }}>
+                <Tag size={16} /> કેટેગરીઝને નવી કેટેગરીમાં ભેગી કરો
+              </div>
+              <p style={{ fontSize: 11.5, color: "#8a8378", marginTop: -4, marginBottom: 10 }}>
+                એક કે વધુ કેટેગરી પસંદ કરો, પછી નવું નામ આપો — બધા પ્રોડક્ટ્સ ત્યાં ખસી જશે.
+              </p>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+                {allCategoryOptions.map((c) => (
+                  <button
+                    key={c}
+                    onClick={() => toggleMergeSource(c)}
+                    style={{
+                      border: `1px solid ${mergeSourceCategories.includes(c) ? T.ink : T.hairline}`,
+                      background: mergeSourceCategories.includes(c) ? T.ink : T.surface2,
+                      color: mergeSourceCategories.includes(c) ? "#fff" : T.ink,
+                      borderRadius: 999,
+                      padding: "5px 12px",
+                      fontSize: 11.5,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
+              <input
+                style={styles.textInput}
+                placeholder="નવી કેટેગરીનું નામ (દા.ત. V Belt)"
+                value={mergeTargetCategory}
+                onChange={(e) => setMergeTargetCategory(e.target.value)}
+              />
+              <button
+                style={{ ...styles.primaryBtn, opacity: mergeSourceCategories.length && mergeTargetCategory.trim() ? 1 : 0.5 }}
+                disabled={!mergeSourceCategories.length || !mergeTargetCategory.trim()}
+                onClick={mergeCategoriesIntoNew}
+              >
+                {mergeSourceCategories.length
+                  ? `${mergeSourceCategories.join(", ")} → "${mergeTargetCategory || "..."}"માં ખસેડો`
+                  : "કેટેગરી પસંદ કરો"}
+              </button>
+              {categoryOpStatus && <p style={{ fontSize: 12, marginTop: 6, fontWeight: 700 }}>{categoryOpStatus}</p>}
 
               <div style={{ ...styles.adminSectionTitle, marginTop: 24 }}>
                 <ImagePlus size={16} /> કેટેગરી પ્રમાણે ફોટો લગાવો (Bulk)
