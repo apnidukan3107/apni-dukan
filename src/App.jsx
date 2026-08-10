@@ -37,15 +37,26 @@ async function storageSet(key, value) {
 // "store/products" document, which hits Firestore's 1MB-per-document limit
 // once enough products (especially with photo data) are added — new
 // products would silently fail to save past that point. Each product now
-// lives in its own doc inside the "products" collection, so there is no
-// shared size limit and every device gets live updates automatically.
-const PRODUCTS_COLLECTION = "products";
+// lives in its own doc, prefixed "product__<id>", INSIDE the existing
+// "store" collection (not a new top-level collection) — this is important
+// because the Firestore security rules only grant access to documents
+// matching /store/{docId}, so a brand-new collection would be silently
+// denied. Using the same "store" collection means no rules changes needed.
+const PRODUCT_KEY_PREFIX = "product__";
+function productKey(id) {
+  return PRODUCT_KEY_PREFIX + id;
+}
 
 function productsListen(onChange) {
   return onSnapshot(
-    collection(db, PRODUCTS_COLLECTION),
+    collection(db, "store"),
     (snap) => {
-      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      const list = snap.docs
+        .filter((d) => d.id.startsWith(PRODUCT_KEY_PREFIX))
+        .map((d) => {
+          const { type, ...fields } = d.data();
+          return { id: d.id.slice(PRODUCT_KEY_PREFIX.length), ...fields };
+        });
       onChange(list);
     },
     (err) => console.error("productsListen error", err)
@@ -53,10 +64,10 @@ function productsListen(onChange) {
 }
 async function productSave(product) {
   const { id, ...rest } = product;
-  await setDoc(doc(db, PRODUCTS_COLLECTION, id), rest);
+  await setDoc(doc(db, "store", productKey(id)), { ...rest, type: "product" });
 }
 async function productDelete(id) {
-  await deleteDoc(doc(db, PRODUCTS_COLLECTION, id));
+  await deleteDoc(doc(db, "store", productKey(id)));
 }
 async function productsBulkSave(productList) {
   // Firestore batches allow up to 500 writes; chunk just in case a very
@@ -66,19 +77,22 @@ async function productsBulkSave(productList) {
     const batch = writeBatch(db);
     chunk.forEach((p) => {
       const { id, ...rest } = p;
-      batch.set(doc(db, PRODUCTS_COLLECTION, id), rest);
+      batch.set(doc(db, "store", productKey(id)), { ...rest, type: "product" });
     });
     await batch.commit();
   }
 }
-// One-time migration: if the new per-document "products" collection is
-// still empty, pull whatever exists in the legacy single-document store
-// (store/products) and split it out into individual documents. Safe to
-// call every load — it's a no-op once migration has happened.
+// One-time migration: if no per-document products exist yet inside "store",
+// pull whatever exists in the legacy single-document blob (store/products)
+// and split it out into individual "product__<id>" documents. Safe to call
+// every load — it's a no-op once migration has happened. The legacy blob
+// itself is left untouched (not deleted), so nothing is ever lost even if
+// this fails.
 async function migrateLegacyProductsIfNeeded() {
   try {
-    const existing = await getDocs(collection(db, PRODUCTS_COLLECTION));
-    if (!existing.empty) return false;
+    const existing = await getDocs(collection(db, "store"));
+    const alreadyMigrated = existing.docs.some((d) => d.id.startsWith(PRODUCT_KEY_PREFIX));
+    if (alreadyMigrated) return false;
     const legacy = await storageGet("products");
     if (!legacy) return false;
     let list = [];
@@ -1268,8 +1282,9 @@ export default function ApniDukanApp() {
 
         // If, after migration, there's still nothing at all (brand new
         // store), seed with the built-in catalog.
-        const afterMigration = await getDocs(collection(db, PRODUCTS_COLLECTION));
-        if (afterMigration.empty) {
+        const afterMigration = await getDocs(collection(db, "store"));
+        const hasAnyProducts = afterMigration.docs.some((d) => d.id.startsWith(PRODUCT_KEY_PREFIX));
+        if (!hasAnyProducts) {
           try {
             await productsBulkSave(SEED_PRODUCTS);
           } catch {}
