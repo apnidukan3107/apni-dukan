@@ -5,7 +5,7 @@ import {
   Pencil, ImagePlus, Tag
 } from "lucide-react";
 import { initializeApp } from "firebase/app";
-import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "firebase/firestore";
+import { getFirestore, doc, getDoc, setDoc, deleteDoc, onSnapshot, collection, getDocs, writeBatch } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: "AIzaSyC9oJrhtVRE91_fF8FHEWXbcBJnY-916Zc",
@@ -30,6 +30,70 @@ async function storageGet(key) {
 async function storageSet(key, value) {
   await setDoc(doc(db, "store", key), { value });
   return true;
+}
+
+// ---- Products: each product is now its own Firestore document -------------
+// Old design stored ALL products as one giant JSON string inside a single
+// "store/products" document, which hits Firestore's 1MB-per-document limit
+// once enough products (especially with photo data) are added — new
+// products would silently fail to save past that point. Each product now
+// lives in its own doc inside the "products" collection, so there is no
+// shared size limit and every device gets live updates automatically.
+const PRODUCTS_COLLECTION = "products";
+
+function productsListen(onChange) {
+  return onSnapshot(
+    collection(db, PRODUCTS_COLLECTION),
+    (snap) => {
+      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      onChange(list);
+    },
+    (err) => console.error("productsListen error", err)
+  );
+}
+async function productSave(product) {
+  const { id, ...rest } = product;
+  await setDoc(doc(db, PRODUCTS_COLLECTION, id), rest);
+}
+async function productDelete(id) {
+  await deleteDoc(doc(db, PRODUCTS_COLLECTION, id));
+}
+async function productsBulkSave(productList) {
+  // Firestore batches allow up to 500 writes; chunk just in case a very
+  // large bulk-add is done in one go.
+  for (let i = 0; i < productList.length; i += 400) {
+    const chunk = productList.slice(i, i + 400);
+    const batch = writeBatch(db);
+    chunk.forEach((p) => {
+      const { id, ...rest } = p;
+      batch.set(doc(db, PRODUCTS_COLLECTION, id), rest);
+    });
+    await batch.commit();
+  }
+}
+// One-time migration: if the new per-document "products" collection is
+// still empty, pull whatever exists in the legacy single-document store
+// (store/products) and split it out into individual documents. Safe to
+// call every load — it's a no-op once migration has happened.
+async function migrateLegacyProductsIfNeeded() {
+  try {
+    const existing = await getDocs(collection(db, PRODUCTS_COLLECTION));
+    if (!existing.empty) return false;
+    const legacy = await storageGet("products");
+    if (!legacy) return false;
+    let list = [];
+    try {
+      list = JSON.parse(legacy.value) || [];
+    } catch {
+      list = [];
+    }
+    if (!list.length) return false;
+    await productsBulkSave(list.filter((p) => p && p.id));
+    return true;
+  } catch (e) {
+    console.error("migrateLegacyProductsIfNeeded error", e);
+    return false;
+  }
 }
 // Real-time listener — used for orders so the admin panel updates instantly
 // on every device/session the moment a new order comes in, without needing
@@ -1183,26 +1247,33 @@ export default function ApniDukanApp() {
   const [customCategories, setCustomCategories] = useState([]);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [showProductList, setShowProductList] = useState(false);
+  const [adminSearchQuery, setAdminSearchQuery] = useState("");
+
+  // ---- bulk add ----
+  const [showBulkAdd, setShowBulkAdd] = useState(false);
+  const [bulkCategory, setBulkCategory] = useState("");
+  const [bulkRows, setBulkRows] = useState([{ name: "", price: "", stock: "", img: "🛍️", image: "" }]);
+  const [bulkSaving, setBulkSaving] = useState(false);
+  const [bulkMessage, setBulkMessage] = useState("");
 
   // ---- load data on mount ----
   useEffect(() => {
     (async () => {
       try {
         setLoading(true);
-        let prod = [];
-        try {
-          const res = await storageGet("products");
-          prod = res ? JSON.parse(res.value) : [];
-        } catch {
-          prod = [];
-        }
-        if (!prod || prod.length === 0) {
-          prod = SEED_PRODUCTS;
+
+        // Move any legacy single-document product data into the new
+        // per-document collection (no-op if already migrated).
+        await migrateLegacyProductsIfNeeded();
+
+        // If, after migration, there's still nothing at all (brand new
+        // store), seed with the built-in catalog.
+        const afterMigration = await getDocs(collection(db, PRODUCTS_COLLECTION));
+        if (afterMigration.empty) {
           try {
-            await storageSet("products", JSON.stringify(prod));
+            await productsBulkSave(SEED_PRODUCTS);
           } catch {}
         }
-        setProducts(prod);
 
         let cats = [];
         try {
@@ -1218,6 +1289,17 @@ export default function ApniDukanApp() {
         setLoading(false);
       }
     })();
+  }, []);
+
+  // Live products — real-time Firestore listener so every product add /
+  // edit / delete shows up instantly on every device/session, and bulk
+  // adds (which write many docs at once) appear the moment they're saved.
+  useEffect(() => {
+    const unsubscribe = productsListen((list) => {
+      setProducts(list);
+      setLoading(false);
+    });
+    return () => unsubscribe();
   }, []);
 
   // Live orders — real-time Firestore listener so every new order shows up
@@ -1386,16 +1468,9 @@ export default function ApniDukanApp() {
   async function importSeedCatalog() {
     setSaving(true);
     try {
-      let base = products;
-      try {
-        const freshRes = await storageGet("products");
-        if (freshRes) base = JSON.parse(freshRes.value) || [];
-      } catch {}
-      const existingIds = new Set(base.map((p) => p.id));
+      const existingIds = new Set(products.map((p) => p.id));
       const toAdd = SEED_PRODUCTS.filter((p) => !existingIds.has(p.id));
-      const next = [...toAdd, ...base];
-      const res = await storageSet("products", JSON.stringify(next));
-      if (res) setProducts(next);
+      if (toAdd.length) await productsBulkSave(toAdd);
     } catch {} finally {
       setSaving(false);
     }
@@ -1405,31 +1480,21 @@ export default function ApniDukanApp() {
     if (!newProduct.name.trim() || !newProduct.price) return;
     const stockVal = newProduct.stock === "" ? undefined : Number(newProduct.stock);
 
-    // Fetch the freshest product list from Firestore right before writing,
-    // so this save can never overwrite something another device/tab just added.
-    let base = products;
-    try {
-      const freshRes = await storageGet("products");
-      if (freshRes) base = JSON.parse(freshRes.value) || [];
-    } catch {}
-
-    let next;
+    let p;
     if (editingProductId) {
-      next = base.map((p) =>
-        p.id === editingProductId
-          ? {
-              ...p,
-              name: newProduct.name.trim(),
-              category: newProduct.category,
-              price: Number(newProduct.price),
-              img: newProduct.img || "🛍️",
-              image: newProduct.image || p.image,
-              stock: stockVal,
-            }
-          : p
-      );
+      const existing = products.find((x) => x.id === editingProductId) || {};
+      p = {
+        ...existing,
+        id: editingProductId,
+        name: newProduct.name.trim(),
+        category: newProduct.category,
+        price: Number(newProduct.price),
+        img: newProduct.img || "🛍️",
+        image: newProduct.image || existing.image,
+        stock: stockVal,
+      };
     } else {
-      const p = {
+      p = {
         id: uid("p"),
         name: newProduct.name.trim(),
         category: newProduct.category,
@@ -1438,13 +1503,11 @@ export default function ApniDukanApp() {
         image: newProduct.image || undefined,
         stock: stockVal,
       };
-      next = [p, ...base];
     }
-    setProducts(next);
     setNewProduct({ name: "", category: newProduct.category, price: "", img: "🛍️", image: "", stock: "" });
     setEditingProductId(null);
     try {
-      await storageSet("products", JSON.stringify(next));
+      await productSave(p);
     } catch {}
   }
 
@@ -1474,12 +1537,69 @@ export default function ApniDukanApp() {
     reader.readAsDataURL(file);
   }
 
+  // ---- bulk add helpers ----
+  function addBulkRow() {
+    setBulkRows((rows) => [...rows, { name: "", price: "", stock: "", img: "🛍️", image: "" }]);
+  }
+  function removeBulkRow(idx) {
+    setBulkRows((rows) => rows.filter((_, i) => i !== idx));
+  }
+  function updateBulkRow(idx, field, value) {
+    setBulkRows((rows) => rows.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
+  }
+  function handleBulkRowImageFile(idx, file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      updateBulkRow(idx, "image", reader.result);
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function saveBulkRows() {
+    const cat = bulkCategory.trim();
+    if (!cat) {
+      setBulkMessage("કૃપા કરીને કેટેગરી પસંદ કરો અથવા લખો.");
+      return;
+    }
+    const validRows = bulkRows.filter((r) => r.name.trim() && r.price !== "");
+    if (!validRows.length) {
+      setBulkMessage("ઓછામાં ઓછું એક પ્રોડક્ટ નામ અને ભાવ સાથે ભરો.");
+      return;
+    }
+    setBulkSaving(true);
+    setBulkMessage("");
+    try {
+      const newProducts = validRows.map((r) => ({
+        id: uid("p"),
+        name: r.name.trim(),
+        category: cat,
+        price: Number(r.price),
+        img: r.img || "🛍️",
+        image: r.image || undefined,
+        stock: r.stock === "" ? undefined : Number(r.stock),
+      }));
+      await productsBulkSave(newProducts);
+      if (!customCategories.includes(cat) && !CATEGORIES_DEFAULT.includes(cat)) {
+        const nextCats = [...customCategories, cat];
+        setCustomCategories(nextCats);
+        try {
+          await storageSet("customCategories", JSON.stringify(nextCats));
+        } catch {}
+      }
+      setBulkMessage(`✅ ${newProducts.length} પ્રોડક્ટ ઉમેરાયા.`);
+      setBulkRows([{ name: "", price: "", stock: "", img: "🛍️", image: "" }]);
+    } catch (e) {
+      setBulkMessage("સેવ કરવામાં તકલીફ થઈ: " + (e && e.message ? e.message : "અજાણી ભૂલ"));
+    } finally {
+      setBulkSaving(false);
+    }
+  }
+
   async function deleteProduct(id) {
-    const next = products.filter((p) => p.id !== id);
-    setProducts(next);
     if (editingProductId === id) cancelEditProduct();
     try {
-      await storageSet("products", JSON.stringify(next));
+      await productDelete(id);
     } catch {}
   }
 
@@ -1967,6 +2087,118 @@ export default function ApniDukanApp() {
                 )}
               </div>
 
+              {/* ---- Bulk Add: multiple products (with photos) at once ---- */}
+              <button
+                style={{
+                  ...styles.adminSectionTitle,
+                  marginTop: 16,
+                  width: "100%",
+                  background: T.surface2,
+                  border: `1px solid ${T.hairline}`,
+                  borderRadius: 10,
+                  padding: "12px 12px",
+                  cursor: "pointer",
+                  justifyContent: "space-between",
+                  fontFamily: "inherit",
+                  textTransform: "none",
+                  letterSpacing: 0,
+                }}
+                onClick={() => setShowBulkAdd((v) => !v)}
+              >
+                <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <ImagePlus size={16} /> બલ્ક એડ (એકસાથે ઘણા પ્રોડક્ટ)
+                </span>
+                <span style={{ fontSize: 11, color: T.inkSoft, fontWeight: 700 }}>
+                  {showBulkAdd ? "છુપાવો ▲" : "ખોલો ▼"}
+                </span>
+              </button>
+
+              {showBulkAdd && (
+                <div style={{ background: T.surface, border: `1px solid ${T.hairline}`, borderRadius: 10, padding: 12, marginTop: 8 }}>
+                  <label style={styles.label}>કેટેગરી (બધા પ્રોડક્ટ માટે એક જ)</label>
+                  <input
+                    style={styles.textInput}
+                    placeholder="દા.ત. Welding Materials"
+                    value={bulkCategory}
+                    onChange={(e) => setBulkCategory(e.target.value)}
+                    list="bulk-cat-options"
+                  />
+                  <datalist id="bulk-cat-options">
+                    {allCategoryOptions.map((c) => (
+                      <option key={c} value={c} />
+                    ))}
+                  </datalist>
+
+                  {bulkRows.map((row, idx) => (
+                    <div key={idx} style={{ border: `1px dashed ${T.hairline}`, borderRadius: 8, padding: 8, marginTop: 10 }}>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <input
+                          style={{ ...styles.textInput, flex: 1 }}
+                          placeholder="પ્રોડક્ટ નામ"
+                          value={row.name}
+                          onChange={(e) => updateBulkRow(idx, "name", e.target.value)}
+                        />
+                        {bulkRows.length > 1 && (
+                          <button style={styles.removeBtn} onClick={() => removeBulkRow(idx)} aria-label="કાઢી નાખો">
+                            <X size={16} color="#b23b3b" />
+                          </button>
+                        )}
+                      </div>
+                      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                        <input
+                          style={{ ...styles.textInput, width: 90 }}
+                          placeholder="ભાવ ₹"
+                          type="number"
+                          value={row.price}
+                          onChange={(e) => updateBulkRow(idx, "price", e.target.value)}
+                        />
+                        <input
+                          style={{ ...styles.textInput, width: 90 }}
+                          placeholder="સ્ટોક"
+                          type="number"
+                          value={row.stock}
+                          onChange={(e) => updateBulkRow(idx, "stock", e.target.value)}
+                        />
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8 }}>
+                        {row.image ? (
+                          <img src={row.image} alt="preview" style={{ width: 40, height: 40, objectFit: "cover", borderRadius: 8, border: `1px solid ${T.hairline}` }} />
+                        ) : (
+                          <div style={{ width: 40, height: 40, borderRadius: 8, border: `1px dashed ${T.hairline}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>
+                            {row.img || "🛍️"}
+                          </div>
+                        )}
+                        <label style={{ ...styles.textInput, flex: 1, display: "flex", alignItems: "center", gap: 6, cursor: "pointer", color: T.inkSoft, fontSize: 11 }}>
+                          <ImagePlus size={13} />
+                          {row.image ? "ફોટો બદલો" : "ફોટો પસંદ કરો"}
+                          <input
+                            type="file"
+                            accept="image/*"
+                            style={{ display: "none" }}
+                            onChange={(e) => handleBulkRowImageFile(idx, e.target.files && e.target.files[0])}
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  ))}
+
+                  <button
+                    style={{ ...styles.primaryBtn, background: T.surface2, color: T.ink, boxShadow: "none", marginTop: 10 }}
+                    onClick={addBulkRow}
+                  >
+                    + વધુ પ્રોડક્ટ ઉમેરો
+                  </button>
+                  <button
+                    style={{ ...styles.primaryBtn, marginTop: 8 }}
+                    onClick={saveBulkRows}
+                    disabled={bulkSaving}
+                  >
+                    {bulkSaving ? "સેવ થાય છે..." : "બધા સેવ કરો"}
+                  </button>
+                  {bulkMessage && <div style={{ fontSize: 12, marginTop: 8, color: bulkMessage.startsWith("✅") ? T.green : "#b23b3b" }}>{bulkMessage}</div>}
+                </div>
+              )}
+
               <button
                 style={{
                   ...styles.adminSectionTitle,
@@ -1991,7 +2223,25 @@ export default function ApniDukanApp() {
                   {showProductList ? "છુપાવો ▲" : "જુઓ ▼"}
                 </span>
               </button>
-              {showProductList && products.map((p) => (
+              {showProductList && (
+                <div style={{ ...styles.searchWrap, margin: "8px 0" }}>
+                  <Search size={15} color={T.inkSoft} />
+                  <input
+                    style={styles.searchInput}
+                    placeholder="પ્રોડક્ટ શોધો..."
+                    value={adminSearchQuery}
+                    onChange={(e) => setAdminSearchQuery(e.target.value)}
+                  />
+                  {adminSearchQuery && (
+                    <button style={{ background: "none", border: "none", cursor: "pointer" }} onClick={() => setAdminSearchQuery("")}>
+                      <X size={14} color={T.inkSoft} />
+                    </button>
+                  )}
+                </div>
+              )}
+              {showProductList && products
+                .filter((p) => p.name.toLowerCase().includes(adminSearchQuery.toLowerCase()))
+                .map((p) => (
                 <div key={p.id} style={{ ...styles.productRow, ...(editingProductId === p.id ? { background: T.surface2, borderRadius: 8 } : {}) }}>
                   {resolveProductImage(p) ? (
                     <img src={resolveProductImage(p)} alt={p.name} style={{ width: 28, height: 28, objectFit: "cover", borderRadius: 6 }} />
