@@ -7,6 +7,7 @@ import {
 import { initializeApp } from "firebase/app";
 import { getFirestore, doc, getDoc, setDoc, deleteDoc, onSnapshot, collection, getDocs, writeBatch } from "firebase/firestore";
 
+import { Analytics } from "@vercel/analytics/react";
 const firebaseConfig = {
   apiKey: "AIzaSyC9oJrhtVRE91_fF8FHEWXbcBJnY-916Zc",
   authDomain: "apni-dukan-b8e19.firebaseapp.com",
@@ -2333,6 +2334,7 @@ export default function ApniDukanApp() {
           </div>
         )}
       </div>
+      <Analytics />
     </div>
   );
 }
