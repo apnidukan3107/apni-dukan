@@ -1661,6 +1661,33 @@ export default function ApniDukanApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [products.length]);
 
+  // Apply the one-time Pressure Gauge discount patch. Here there is no
+  // separate official price list — the existing "price" already saved on
+  // each product IS treated as the MRP, and the new selling price is set
+  // to 35% off that. Only "price" and "mrp" fields are touched — never
+  // "image" — so existing photos are never affected. Skips any product
+  // that already has "mrp" set, so it's safe to leave running permanently.
+  const PRESSURE_GAUGE_DISCOUNT_PERCENT = 0.35;
+  useEffect(() => {
+    if (!products.length) return;
+    const needsPatch = products.filter(
+      (p) => p.mrp == null && (p.category || "").trim().toLowerCase() === "pressure gauge"
+    );
+    if (!needsPatch.length) return;
+    (async () => {
+      for (const p of needsPatch) {
+        try {
+          const mrp = p.price;
+          const discountedPrice = Math.round(mrp * (1 - PRESSURE_GAUGE_DISCOUNT_PERCENT));
+          await productSave({ ...p, mrp, price: discountedPrice });
+        } catch (e) {
+          console.error("pressure gauge MRP patch failed for", p.id, e);
+        }
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [products.length]);
+
   // Live orders — real-time Firestore listener so every new order shows up
   // in the admin panel immediately, on any device, without a manual refresh.
   const firstOrdersLoadRef = useRef(true);
