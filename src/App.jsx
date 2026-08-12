@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { initializeApp } from "firebase/app";
 import { getFirestore, doc, getDoc, setDoc, deleteDoc, onSnapshot, collection, getDocs, writeBatch } from "firebase/firestore";
+import { getMessaging, getToken, isSupported as isMessagingSupported } from "firebase/messaging";
 
 const firebaseConfig = {
   apiKey: "AIzaSyC9oJrhtVRE91_fF8FHEWXbcBJnY-916Zc",
@@ -19,6 +20,11 @@ const firebaseConfig = {
 
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp);
+
+// VAPID key from Firebase Console > Project Settings > Cloud Messaging > Web Push certificates.
+// Needed so the browser can register for real push notifications (works even when the
+// admin panel tab / app is closed), on top of the existing in-tab beep+Notification popup.
+const FCM_VAPID_KEY = "BPqUFgVpB-Sl-hHVCMe6mcavw_aQHXqpSB72-rcMFrxYqkQZNnpzb5qIGypPSj_RwUwqdAtx90K_MYZxsKMsTQU";
 
 // Firestore-backed storage — every key (products / orders / customCategories)
 // is stored as one document inside the "store" collection, matching the
@@ -1697,9 +1703,42 @@ export default function ApniDukanApp() {
     typeof Notification !== "undefined" ? Notification.permission : "unsupported"
   );
 
-  function enableOrderNotifications() {
+  const [pushSetupMsg, setPushSetupMsg] = useState("");
+
+  // Sets up REAL push notifications via Firebase Cloud Messaging — unlike the
+  // in-tab Notification popup below, these arrive even if the admin panel tab
+  // or the app itself is closed. Registers the service worker, asks for
+  // permission, gets an FCM device token, and saves it to Firestore
+  // (store/adminFcmToken) so the /api/notify-admin serverless function can
+  // find it when a new order comes in.
+  async function enableOrderNotifications() {
     if (typeof Notification === "undefined") return;
-    Notification.requestPermission().then((perm) => setNotifPermission(perm));
+    const perm = await Notification.requestPermission();
+    setNotifPermission(perm);
+    if (perm !== "granted") return;
+
+    try {
+      const supported = await isMessagingSupported();
+      if (!supported || !("serviceWorker" in navigator)) {
+        setPushSetupMsg("આ બ્રાઉઝર/ડિવાઈસ પર બેકગ્રાઉન્ડ પુશ સપોર્ટેડ નથી — ટેબ ખુલ્લું હોય ત્યારે જ નોટિફિકેશન મળશે.");
+        return;
+      }
+      const registration = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
+      const messaging = getMessaging(firebaseApp);
+      const token = await getToken(messaging, {
+        vapidKey: FCM_VAPID_KEY,
+        serviceWorkerRegistration: registration,
+      });
+      if (token) {
+        await storageSet("adminFcmToken", token);
+        setPushSetupMsg("✅ પુશ નોટિફિકેશન ચાલુ થઈ ગયું — હવે એપ બંધ હોય તોય નવો ઓર્ડર આવે એટલે નોટિફિકેશન મળશે.");
+      } else {
+        setPushSetupMsg("પુશ ટોકન ના મળ્યું, ફરી પ્રયત્ન કરો.");
+      }
+    } catch (e) {
+      console.error("push notification setup failed", e);
+      setPushSetupMsg("પુશ સેટઅપમાં તકલીફ પડી: " + (e && e.message ? e.message : "અજાણી ભૂલ"));
+    }
   }
 
   useEffect(() => {
@@ -1825,6 +1864,19 @@ export default function ApniDukanApp() {
       if (!res) {
         setLoadError("ઓર્ડર થઈ ગયો, પણ સર્વર પર સેવ કરવામાં તકલીફ પડી — એડમિન પેનલમાં કદાચ ના દેખાય.");
       }
+      // Fire-and-forget: tell the admin via real push notification (works even
+      // if admin's app/tab is closed). Never blocks or fails the customer's order.
+      try {
+        fetch("/api/notify-admin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            customerName: order.customer.name,
+            total: order.total,
+            orderId: order.id,
+          }),
+        }).catch(() => {});
+      } catch {}
     } catch (e) {
       // Even if storage sync fails, don't block the customer — complete the order locally
       const nextOrders = [order, ...orders];
@@ -2322,8 +2374,11 @@ export default function ApniDukanApp() {
               )}
               {notifPermission === "granted" && (
                 <div style={{ fontSize: 12, color: "#16a34a", marginBottom: 12 }}>
-                  🔔 નોટિફિકેશન ચાલુ છે — નવો ઓર્ડર આવે ત્યારે અવાજ + notification મળશે (જ્યાં સુધી આ ટેબ ખુલ્લું છે)
+                  🔔 નોટિફિકેશન ચાલુ છે — નવો ઓર્ડર આવે ત્યારે અવાજ + notification મળશે (ટેબ ખુલ્લું હોય ત્યારે), અને પુશ સેટઅપ થયું હોય તો એપ બંધ હોય તોય મળશે
                 </div>
+              )}
+              {pushSetupMsg && (
+                <div style={{ fontSize: 12, color: "#6b6555", marginBottom: 12 }}>{pushSetupMsg}</div>
               )}
               <button style={{ ...styles.primaryBtn, marginTop: 0, marginBottom: 16 }} onClick={importSeedCatalog} disabled={saving}>
                 {saving ? "લોડ થાય છે..." : "Taparia Handtools કેટલોગ લોડ/અપડેટ કરો"}
