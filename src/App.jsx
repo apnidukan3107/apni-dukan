@@ -2051,7 +2051,7 @@ export default function ApniDukanApp() {
   0% { transform: translateX(0); }
   100% { transform: translateX(-50%); }
 }`}</style>
-      <div style={{ ...styles.phoneFrame, position: "relative" }} className="phone-frame">
+      <div style={styles.phoneFrame} className="phone-frame">
         {/* TOP BAR */}
         <div style={styles.hazardStrip} />
         <div style={styles.topBar}>
@@ -2103,6 +2103,7 @@ export default function ApniDukanApp() {
         {/* HOME */}
         {view === "home" && (
           <div style={styles.scrollArea}>
+            <AdStrip />
             <div style={styles.searchWrap}>
               <Search size={16} color="#8a8378" style={{ flexShrink: 0 }} />
               <input
@@ -2657,7 +2658,6 @@ export default function ApniDukanApp() {
             </div>
           </div>
         )}
-        <AdStrip />
       </div>
     </div>
   );
@@ -2746,11 +2746,11 @@ const styles = {
   productRow: { display: "flex", alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${T.surface2}` },
 };
 
-/* Bottom scrolling WhatsApp ad strip — shows a right-to-left marquee message
-   pinned to the bottom of the phone frame and automatically disappears
-   after AD_STRIP_END_TIME (12 hours from when this was set up). No manual
-   removal needed — it just stops rendering once the time has passed. */
-const AD_STRIP_END_TIME = "2026-08-12T05:27:37+05:30";
+/* Scrolling WhatsApp ad strip — shown between the eco slogan and the
+   search bar on the home screen, right-to-left marquee, and automatically
+   disappears after AD_STRIP_END_TIME. No manual removal needed — it just
+   stops rendering once the time has passed. */
+const AD_STRIP_END_TIME = "2026-08-12T17:33:00+05:30";
 function AdStrip() {
   const [visible, setVisible] = React.useState(() => Date.now() < new Date(AD_STRIP_END_TIME).getTime());
   React.useEffect(() => {
@@ -2765,28 +2765,27 @@ function AdStrip() {
 
   if (!visible) return null;
 
-  const text = "WhatsApp: 9737721983";
+  const text = "🌞 Shaurya's Solar System — Switch to Solar, Pay EMI instead of Electricity Bill — WhatsApp: 7048169567";
   return (
     <a
-      href="https://wa.me/919737721983"
+      href="https://wa.me/917048169567"
       style={{
-        position: "absolute",
-        bottom: 0,
-        left: 0,
-        right: 0,
+        display: "block",
         background: "linear-gradient(90deg, #1f3a1f, #2f6b3a)",
         color: "#fff",
-        padding: "9px 0",
+        padding: "8px 0",
         overflow: "hidden",
         whiteSpace: "nowrap",
         textDecoration: "none",
-        zIndex: 20,
-        boxShadow: "0 -2px 8px rgba(0,0,0,0.15)",
+        borderRadius: 10,
+        margin: "0 0 10px",
       }}
     >
-      <div style={{ display: "inline-block", paddingLeft: "100%", animation: "adStripScroll 14s linear infinite", fontSize: 13, fontWeight: 600 }}>
-        <span style={{ marginRight: 40 }}>{text}</span>
-        <span style={{ marginRight: 40 }}>{text}</span>
+      <div style={{ display: "inline-flex", animation: "adStripScroll 12s linear infinite", fontSize: 13, fontWeight: 700 }}>
+        <span style={{ paddingRight: 40 }}>{text}</span>
+        <span style={{ paddingRight: 40 }}>{text}</span>
+        <span style={{ paddingRight: 40 }}>{text}</span>
+        <span style={{ paddingRight: 40 }}>{text}</span>
       </div>
     </a>
   );
