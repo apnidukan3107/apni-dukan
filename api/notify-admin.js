@@ -1,29 +1,43 @@
-// Vercel serverless function — sends a real push notification to the
-// admin's registered device via Firebase Cloud Messaging whenever a new
-// order is placed. Called from the client right after an order is saved
-// (see placeOrder() in App.jsx, which calls fetch("/api/notify-admin")).
-//
-// Needs ONE environment variable set in the Vercel project dashboard
-// (Settings → Environments → Production → Environment Variables):
-//   FIREBASE_SERVICE_ACCOUNT  -> the ENTIRE contents of the service
-//                                 account JSON file downloaded from
-//                                 Firebase Console → Project settings →
-//                                 Service accounts → Generate new private
-//                                 key. Paste the whole { ... } JSON as-is
-//                                 into the Value field.
-
 import admin from "firebase-admin";
 
+let initError = null;
+
 if (!admin.apps.length) {
-  const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || "{}");
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-  });
+  try {
+    const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
+
+    if (!raw) {
+      throw new Error("FIREBASE_SERVICE_ACCOUNT environment variable is missing (empty).");
+    }
+
+    let serviceAccount;
+    try {
+      serviceAccount = JSON.parse(raw);
+    } catch (parseErr) {
+      throw new Error("FIREBASE_SERVICE_ACCOUNT is not valid JSON. Parse error: " + parseErr.message);
+    }
+
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount),
+    });
+  } catch (e) {
+    initError = e;
+    console.error("notify-admin: Firebase Admin init failed:", e.message);
+  }
 }
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     res.status(405).json({ error: "Method not allowed" });
+    return;
+  }
+
+  if (initError) {
+    res.status(500).json({
+      ok: false,
+      error: "firebase-init-failed",
+      message: initError.message,
+    });
     return;
   }
 
