@@ -1,28 +1,43 @@
+// Vercel serverless function — sends a real push notification to the
+// admin's registered device via Firebase Cloud Messaging whenever a new
+// order is placed. Called from the client right after an order is saved
+// (see placeOrder() in App.jsx, which calls fetch("/api/notify-admin")).
+//
+// Needs ONE environment variable set in the Vercel project dashboard
+// (Settings → Environments → Production → Environment Variables):
+//   FIREBASE_SERVICE_ACCOUNT  -> the ENTIRE contents of the service
+//                                 account JSON file downloaded from
+//                                 Firebase Console → Project settings →
+//                                 Service accounts → Generate new private
+//                                 key. Paste the whole { ... } JSON as-is.
+//
+// This version never crashes at startup — any setup problem (missing
+// variable, broken JSON, etc.) is caught and returned as a normal JSON
+// response with a clear "step" and "message", so it shows up directly in
+// the response instead of just "FUNCTION_INVOCATION_FAILED" in the logs.
+
 import admin from "firebase-admin";
 
-let initError = null;
-
-if (!admin.apps.length) {
+function initFirebase() {
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
+  if (!raw) {
+    throw { step: "env-missing", message: "FIREBASE_SERVICE_ACCOUNT environment variable is not set (or empty) for this deployment." };
+  }
+  let serviceAccount;
   try {
-    const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
-
-    if (!raw) {
-      throw new Error("FIREBASE_SERVICE_ACCOUNT environment variable is missing (empty).");
-    }
-
-    let serviceAccount;
-    try {
-      serviceAccount = JSON.parse(raw);
-    } catch (parseErr) {
-      throw new Error("FIREBASE_SERVICE_ACCOUNT is not valid JSON. Parse error: " + parseErr.message);
-    }
-
-    admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
-    });
+    serviceAccount = JSON.parse(raw);
   } catch (e) {
-    initError = e;
-    console.error("notify-admin: Firebase Admin init failed:", e.message);
+    throw { step: "json-parse", message: "FIREBASE_SERVICE_ACCOUNT is not valid JSON: " + e.message };
+  }
+  if (!serviceAccount.project_id || !serviceAccount.client_email || !serviceAccount.private_key) {
+    throw { step: "json-shape", message: "FIREBASE_SERVICE_ACCOUNT JSON is missing project_id / client_email / private_key." };
+  }
+  if (!admin.apps.length) {
+    try {
+      admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
+    } catch (e) {
+      throw { step: "admin-init", message: "admin.initializeApp failed: " + e.message };
+    }
   }
 }
 
@@ -32,12 +47,11 @@ export default async function handler(req, res) {
     return;
   }
 
-  if (initError) {
-    res.status(500).json({
-      ok: false,
-      error: "firebase-init-failed",
-      message: initError.message,
-    });
+  try {
+    initFirebase();
+  } catch (e) {
+    console.error("notify-admin init error", e);
+    res.status(200).json({ ok: false, ...e });
     return;
   }
 
@@ -47,7 +61,7 @@ export default async function handler(req, res) {
     const token = tokenDoc.exists ? tokenDoc.data().value : null;
 
     if (!token) {
-      res.status(200).json({ ok: false, reason: "no-admin-token-registered" });
+      res.status(200).json({ ok: false, step: "no-token", message: "No admin device is registered yet (store/adminFcmToken is empty). Tap the notification button in the admin panel first." });
       return;
     }
 
@@ -68,7 +82,7 @@ export default async function handler(req, res) {
 
     res.status(200).json({ ok: true });
   } catch (e) {
-    console.error("notify-admin error", e);
-    res.status(500).json({ ok: false, error: String(e && e.message ? e.message : e) });
+    console.error("notify-admin send error", e);
+    res.status(200).json({ ok: false, step: "send", message: String(e && e.message ? e.message : e) });
   }
 }
