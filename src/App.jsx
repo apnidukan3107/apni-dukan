@@ -2147,6 +2147,7 @@ export default function ApniDukanApp() {
         {/* HOME */}
         {view === "home" && (
           <div style={styles.scrollArea}>
+            <IndependenceDayBanner />
             <AdStrip />
             <div style={styles.searchWrap}>
               <Search size={16} color="#8a8378" style={{ flexShrink: 0 }} />
@@ -2725,7 +2726,13 @@ export default function ApniDukanApp() {
 }
 
 /* ---- design tokens: industrial + environmental + nation + youth ---- */
-const T = {
+// ---- Independence Day theme (temporary, auto-reverts) ----
+// For a limited window around 15 August, the whole app's color palette
+// switches to a tricolor (saffron / white / green) look. After
+// THEME_SWITCH_END_TIME passes, T automatically falls back to the
+// regular earthy palette — nothing to remove manually.
+const THEME_SWITCH_END_TIME = "2026-08-16T12:30:00+05:30";
+const REGULAR_THEME = {
   bg: "#DAD6C8",
   surface: "#F2EFE4",
   surface2: "#EAE6D8",
@@ -2740,6 +2747,22 @@ const T = {
   marigold: "#D99B2B",
   hairline: "#C7C3B4",
 };
+const INDEPENDENCE_THEME = {
+  bg: "#FFF6EC",
+  surface: "#FFFFFF",
+  surface2: "#FFE9D2",
+  ink: "#0B1F4B",
+  inkSoft: "#3A4A6B",
+  orange: "#FF9933",
+  orangeDeep: "#E67E22",
+  green: "#138808",
+  greenDeep: "#0B5C05",
+  greenLight: "#DFF6DA",
+  greenLight2: "#C3EFC0",
+  marigold: "#000080",
+  hairline: "#F0DCC0",
+};
+const T = Date.now() < new Date(THEME_SWITCH_END_TIME).getTime() ? INDEPENDENCE_THEME : REGULAR_THEME;
 
 const styles = {
   appShell: { minHeight: "100vh", width: "100%", background: `radial-gradient(circle at 15% 0%, #e3e0d3 0%, transparent 45%), ${T.bg}`, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Noto Sans Gujarati','Segoe UI',sans-serif", padding: "12px 0" },
@@ -2806,6 +2829,47 @@ const styles = {
   statusBtnActive: { background: T.green, color: "#fff", borderColor: T.green },
   productRow: { display: "flex", alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${T.surface2}` },
 };
+
+/* Independence Day wishes banner — tricolor card shown at the top of the
+   home screen, automatically disappears after INDEPENDENCE_BANNER_END. */
+const INDEPENDENCE_BANNER_END = "2026-08-16T12:30:00+05:30";
+function IndependenceDayBanner() {
+  const [visible, setVisible] = React.useState(() => Date.now() < new Date(INDEPENDENCE_BANNER_END).getTime());
+  React.useEffect(() => {
+    if (!visible) return;
+    const timer = setInterval(() => {
+      if (Date.now() >= new Date(INDEPENDENCE_BANNER_END).getTime()) {
+        setVisible(false);
+      }
+    }, 60000);
+    return () => clearInterval(timer);
+  }, [visible]);
+
+  if (!visible) return null;
+
+  return (
+    <div
+      style={{
+        position: "relative",
+        borderRadius: 14,
+        overflow: "hidden",
+        padding: "16px 14px",
+        marginBottom: 10,
+        background: "linear-gradient(135deg, #FF9933 0%, #FF9933 32%, #ffffff 32%, #ffffff 68%, #138808 68%, #138808 100%)",
+        boxShadow: "0 4px 14px rgba(0,0,0,0.15)",
+        textAlign: "center",
+      }}
+    >
+      <span style={{ position: "absolute", top: 6, left: 10, fontSize: 20 }}>🇮🇳</span>
+      <span style={{ position: "absolute", top: 6, right: 10, fontSize: 20 }}>🇮🇳</span>
+      <div style={{ fontSize: 22, color: "#000080", letterSpacing: 2 }}>☸</div>
+      <div style={{ margin: "4px 0 2px", fontSize: 19, fontWeight: 900, color: "#1a1a2e", textShadow: "0 1px 0 rgba(255,255,255,0.5)" }}>
+        Happy Independence Day!
+      </div>
+      <div style={{ margin: 0, fontSize: 12, fontWeight: 700, color: "#333" }}>15 ઓગસ્ટ — જય હિન્દ 🎉</div>
+    </div>
+  );
+}
 
 /* Scrolling WhatsApp ad strip — shown between the eco slogan and the
    search bar on the home screen, right-to-left marquee, and automatically
