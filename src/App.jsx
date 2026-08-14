@@ -21,10 +21,40 @@ const firebaseConfig = {
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp);
 
-// VAPID key from Firebase Console > Project Settings > Cloud Messaging > Web Push certificates.
-// Needed so the browser can register for real push notifications (works even when the
-// admin panel tab / app is closed), on top of the existing in-tab beep+Notification popup.
-const FCM_VAPID_KEY = "BPqUFgVpB-Sl-hHVCMe6mcavw_aQHXqpSB72-rcMFrxYqkQZNnpzb5qIGypPSj_RwUwqdAtx90K_MYZxsKMsTQU";
+// ---- Push notifications (Firebase Cloud Messaging) ----
+// Public VAPID key from Firebase Console → Project settings → Cloud
+// Messaging → Web Push certificates. This is a public key (safe to embed
+// in client code, unlike the service account key used server-side).
+const FCM_VAPID_KEY =
+  "BPqUFgVpB-Sl-hHVCMe6mcavw_aQHXqpSB72-rcMFrxYqkQZNnpzb5qIGypPSj_RwUwqdAtx90K_MYZxsKMsTQU";
+
+async function registerAdminForPushNotifications() {
+  try {
+    const supported = await isMessagingSupported();
+    if (!supported) return { ok: false, reason: "unsupported" };
+    if (typeof Notification === "undefined") return { ok: false, reason: "unsupported" };
+
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") return { ok: false, reason: "denied" };
+
+    const registration = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
+    const messaging = getMessaging(firebaseApp);
+    const token = await getToken(messaging, {
+      vapidKey: FCM_VAPID_KEY,
+      serviceWorkerRegistration: registration,
+    });
+    if (!token) return { ok: false, reason: "no-token" };
+
+    // Save this device's token so the /api/send-order-notification route
+    // knows where to deliver the push. Stored under the "store" collection
+    // (same pattern as everything else) so no new Firestore rules needed.
+    await setDoc(doc(db, "store", "adminFcmToken"), { value: token });
+    return { ok: true };
+  } catch (e) {
+    console.error("registerAdminForPushNotifications error", e);
+    return { ok: false, reason: "error", error: e };
+  }
+}
 
 // Firestore-backed storage — every key (products / orders / customCategories)
 // is stored as one document inside the "store" collection, matching the
@@ -1699,47 +1729,7 @@ export default function ApniDukanApp() {
   // in the admin panel immediately, on any device, without a manual refresh.
   const firstOrdersLoadRef = useRef(true);
   const prevOrderIdsRef = useRef(new Set());
-  const [notifPermission, setNotifPermission] = useState(
-    typeof Notification !== "undefined" ? Notification.permission : "unsupported"
-  );
-
-  const [pushSetupMsg, setPushSetupMsg] = useState("");
-
-  // Sets up REAL push notifications via Firebase Cloud Messaging — unlike the
-  // in-tab Notification popup below, these arrive even if the admin panel tab
-  // or the app itself is closed. Registers the service worker, asks for
-  // permission, gets an FCM device token, and saves it to Firestore
-  // (store/adminFcmToken) so the /api/notify-admin serverless function can
-  // find it when a new order comes in.
-  async function enableOrderNotifications() {
-    if (typeof Notification === "undefined") return;
-    const perm = await Notification.requestPermission();
-    setNotifPermission(perm);
-    if (perm !== "granted") return;
-
-    try {
-      const supported = await isMessagingSupported();
-      if (!supported || !("serviceWorker" in navigator)) {
-        setPushSetupMsg("આ બ્રાઉઝર/ડિવાઈસ પર બેકગ્રાઉન્ડ પુશ સપોર્ટેડ નથી — ટેબ ખુલ્લું હોય ત્યારે જ નોટિફિકેશન મળશે.");
-        return;
-      }
-      const registration = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
-      const messaging = getMessaging(firebaseApp);
-      const token = await getToken(messaging, {
-        vapidKey: FCM_VAPID_KEY,
-        serviceWorkerRegistration: registration,
-      });
-      if (token) {
-        await storageSet("adminFcmToken", token);
-        setPushSetupMsg("✅ પુશ નોટિફિકેશન ચાલુ થઈ ગયું — હવે એપ બંધ હોય તોય નવો ઓર્ડર આવે એટલે નોટિફિકેશન મળશે.");
-      } else {
-        setPushSetupMsg("પુશ ટોકન ના મળ્યું, ફરી પ્રયત્ન કરો.");
-      }
-    } catch (e) {
-      console.error("push notification setup failed", e);
-      setPushSetupMsg("પુશ સેટઅપમાં તકલીફ પડી: " + (e && e.message ? e.message : "અજાણી ભૂલ"));
-    }
-  }
+  const [pushStatus, setPushStatus] = useState("default");
 
   useEffect(() => {
     const unsubscribe = storageListen("orders", (rawValue) => {
@@ -1861,22 +1851,24 @@ export default function ApniDukanApp() {
       setLastOrderId(String(nextOrders.length));
       setView("success");
       setCheckoutForm({ name: "", phone: "", address: "" });
-      if (!res) {
-        setLoadError("ઓર્ડર થઈ ગયો, પણ સર્વર પર સેવ કરવામાં તકલીફ પડી — એડમિન પેનલમાં કદાચ ના દેખાય.");
-      }
-      // Fire-and-forget: tell the admin via real push notification (works even
-      // if admin's app/tab is closed). Never blocks or fails the customer's order.
+      // Fire the real push notification via the Vercel API route — this
+      // works even if the admin's phone screen is off / app is closed,
+      // unlike the browser Notification API which only fires while a tab
+      // is open. Never blocks the customer's order if this call fails.
       try {
-        fetch("/api/notify-admin", {
+        fetch("/api/send-order-notification", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            orderId: order.id,
             customerName: order.customer.name,
             total: order.total,
-            orderId: order.id,
           }),
         }).catch(() => {});
       } catch {}
+      if (!res) {
+        setLoadError("ઓર્ડર થઈ ગયો, પણ સર્વર પર સેવ કરવામાં તકલીફ પડી — એડમિન પેનલમાં કદાચ ના દેખાય.");
+      }
     } catch (e) {
       // Even if storage sync fails, don't block the customer — complete the order locally
       const nextOrders = [order, ...orders];
@@ -2364,21 +2356,35 @@ export default function ApniDukanApp() {
         {view === "admin" && (
           <div style={styles.scrollArea}>
             <div style={{ padding: 16 }}>
-              {notifPermission !== "granted" && notifPermission !== "unsupported" && (
+              {pushStatus !== "granted" && (
                 <button
                   style={{ ...styles.primaryBtn, marginTop: 0, marginBottom: 12, background: "#2563eb" }}
-                  onClick={enableOrderNotifications}
+                  onClick={async () => {
+                    setPushStatus("loading");
+                    const res = await registerAdminForPushNotifications();
+                    setPushStatus(res.ok ? "granted" : res.reason);
+                  }}
                 >
-                  🔔 ઓર્ડર નોટિફિકેશન ચાલુ કરો
+                  🔔 ઓર્ડર પુશ નોટિફિકેશન ચાલુ કરો
                 </button>
               )}
-              {notifPermission === "granted" && (
-                <div style={{ fontSize: 12, color: "#16a34a", marginBottom: 12 }}>
-                  🔔 નોટિફિકેશન ચાલુ છે — નવો ઓર્ડર આવે ત્યારે અવાજ + notification મળશે (ટેબ ખુલ્લું હોય ત્યારે), અને પુશ સેટઅપ થયું હોય તો એપ બંધ હોય તોય મળશે
+              {pushStatus === "loading" && (
+                <div style={{ fontSize: 12, color: "#8a8378", marginBottom: 12 }}>ચાલુ કરાય છે...</div>
+              )}
+              {pushStatus === "denied" && (
+                <div style={{ fontSize: 12, color: "#b23b3b", marginBottom: 12 }}>
+                  ❌ Permission નકારાયું — બ્રાઉઝર સેટિંગ્સમાં આ સાઇટ માટે notification allow કરો, પછી ફરી ટ્રાય કરો.
                 </div>
               )}
-              {pushSetupMsg && (
-                <div style={{ fontSize: 12, color: "#6b6555", marginBottom: 12 }}>{pushSetupMsg}</div>
+              {(pushStatus === "unsupported" || pushStatus === "error" || pushStatus === "no-token") && (
+                <div style={{ fontSize: 12, color: "#b23b3b", marginBottom: 12 }}>
+                  ❌ આ ડિવાઇસ/બ્રાઉઝર પર પુશ નોટિફિકેશન સેટ ના થયું. Chrome (Android) વાપરી જુઓ.
+                </div>
+              )}
+              {pushStatus === "granted" && (
+                <div style={{ fontSize: 12, color: "#16a34a", marginBottom: 12 }}>
+                  🔔 પુશ નોટિફિકેશન ચાલુ છે — નવો ઓર્ડર આવે ત્યારે ફોન લોક હોય તો પણ notification મળશે.
+                </div>
               )}
               <button style={{ ...styles.primaryBtn, marginTop: 0, marginBottom: 16 }} onClick={importSeedCatalog} disabled={saving}>
                 {saving ? "લોડ થાય છે..." : "Taparia Handtools કેટલોગ લોડ/અપડેટ કરો"}
@@ -2805,7 +2811,7 @@ const styles = {
    search bar on the home screen, right-to-left marquee, and automatically
    disappears after AD_STRIP_END_TIME. No manual removal needed — it just
    stops rendering once the time has passed. */
-const AD_STRIP_END_TIME = "2026-08-12T17:33:00+05:30";
+const AD_STRIP_END_TIME = "2026-08-17T06:45:00+05:30";
 function AdStrip() {
   const [visible, setVisible] = React.useState(() => Date.now() < new Date(AD_STRIP_END_TIME).getTime());
   React.useEffect(() => {
