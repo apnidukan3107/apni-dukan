@@ -7,7 +7,7 @@ import {
 import { initializeApp } from "firebase/app";
 import { getFirestore, doc, getDoc, setDoc, deleteDoc, onSnapshot, collection, getDocs, writeBatch } from "firebase/firestore";
 import { getMessaging, getToken, isSupported as isMessagingSupported } from "firebase/messaging";
-
+import { getAnalytics } from "firebase/analytics";
 const firebaseConfig = {
   apiKey: "AIzaSyC9oJrhtVRE91_fF8FHEWXbcBJnY-916Zc",
   authDomain: "apni-dukan-b8e19.firebaseapp.com",
@@ -20,7 +20,7 @@ const firebaseConfig = {
 
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp);
-
+const analytics = getAnalytics(firebaseApp);
 // ---- Push notifications (Firebase Cloud Messaging) ----
 // Public VAPID key from Firebase Console → Project settings → Cloud
 // Messaging → Web Push certificates. This is a public key (safe to embed
