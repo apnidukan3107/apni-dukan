@@ -7,7 +7,7 @@ import {
 import { initializeApp } from "firebase/app";
 import { getFirestore, doc, getDoc, setDoc, deleteDoc, onSnapshot, collection, getDocs, writeBatch } from "firebase/firestore";
 import { getMessaging, getToken, isSupported as isMessagingSupported } from "firebase/messaging";
-import { getAnalytics } from "firebase/analytics";
+
 const firebaseConfig = {
   apiKey: "AIzaSyC9oJrhtVRE91_fF8FHEWXbcBJnY-916Zc",
   authDomain: "apni-dukan-b8e19.firebaseapp.com",
@@ -20,7 +20,7 @@ const firebaseConfig = {
 
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp);
-const analytics = getAnalytics(firebaseApp);
+
 // ---- Push notifications (Firebase Cloud Messaging) ----
 // Public VAPID key from Firebase Console → Project settings → Cloud
 // Messaging → Web Push certificates. This is a public key (safe to embed
@@ -1594,6 +1594,41 @@ export default function ApniDukanApp() {
   // most recent date starts open; older dates stay collapsed until tapped,
   // so there's no more endless scrolling to find today's orders.
   const [expandedDateGroups, setExpandedDateGroups] = useState(() => new Set());
+
+  // ---- background music: Independence Day special, active only for 24
+  // hours from deploy time, then it stops playing for everyone forever. ----
+  useEffect(() => {
+    // 24 hours from when this was set up (16 Aug 2026, 5:02 PM IST).
+    // After this, the music will never play again for any user.
+    const MUSIC_EXPIRES_AT = new Date("2026-08-16T17:02:00+05:30").getTime();
+    if (Date.now() > MUSIC_EXPIRES_AT) return;
+
+    const audio = new Audio("/music.mp3");
+    audio.loop = true;
+    audio.volume = 0.5;
+
+    let started = false;
+    const startMusic = () => {
+      if (started) return;
+      audio.play().then(() => { started = true; }).catch(() => {});
+    };
+
+    // Try immediately on page load.
+    startMusic();
+
+    // Fallback: start on first user interaction if autoplay was blocked.
+    const events = ["click", "touchstart", "scroll", "keydown"];
+    const onFirstInteraction = () => {
+      startMusic();
+      events.forEach((ev) => window.removeEventListener(ev, onFirstInteraction));
+    };
+    events.forEach((ev) => window.addEventListener(ev, onFirstInteraction, { once: true }));
+
+    return () => {
+      events.forEach((ev) => window.removeEventListener(ev, onFirstInteraction));
+      audio.pause();
+    };
+  }, []);
 
   // ---- bulk add ----
   const [showBulkAdd, setShowBulkAdd] = useState(false);
