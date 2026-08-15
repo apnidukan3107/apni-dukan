@@ -1540,6 +1540,33 @@ function formatOrderDate(iso) {
   }
 }
 
+function dateGroupLabel(iso) {
+  if (!iso) return "તારીખ અજાણી";
+  try {
+    return new Date(iso).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+  } catch {
+    return "તારીખ અજાણી";
+  }
+}
+
+// Groups orders by calendar date (newest date first), keeping each
+// group's original order-numbering intact so "ઓર્ડર #N" still matches
+// what's shown elsewhere.
+function groupOrdersByDate(orders) {
+  const groups = [];
+  const byLabel = new Map();
+  orders.forEach((o, idx) => {
+    const label = dateGroupLabel(o.createdAt);
+    if (!byLabel.has(label)) {
+      const group = { label, items: [] };
+      byLabel.set(label, group);
+      groups.push(group);
+    }
+    byLabel.get(label).items.push({ order: o, orderNumber: orders.length - idx });
+  });
+  return groups;
+}
+
 export default function ApniDukanApp() {
   const [products, setProducts] = useState([]);
   const [orders, setOrders] = useState([]);
@@ -1563,6 +1590,10 @@ export default function ApniDukanApp() {
   const [newCategoryName, setNewCategoryName] = useState("");
   const [showProductList, setShowProductList] = useState(false);
   const [adminSearchQuery, setAdminSearchQuery] = useState("");
+  // Which date-group headers are expanded in the admin Orders list. The
+  // most recent date starts open; older dates stay collapsed until tapped,
+  // so there's no more endless scrolling to find today's orders.
+  const [expandedDateGroups, setExpandedDateGroups] = useState(() => new Set());
 
   // ---- bulk add ----
   const [showBulkAdd, setShowBulkAdd] = useState(false);
@@ -1821,10 +1852,20 @@ export default function ApniDukanApp() {
 
   const [checkoutForm, setCheckoutForm] = useState({ name: "", phone: "", address: "" });
   const [checkoutError, setCheckoutError] = useState("");
+  // "no-bill" = direct order, no GST. "with-bill" = proper GST bill, 18% added.
+  const [billOption, setBillOption] = useState("no-bill");
+  const [gstNumber, setGstNumber] = useState("");
+  const deliveryFee = cartTotal > 999 ? 0 : 49;
+  const gstAmount = billOption === "with-bill" ? Math.round(cartTotal * 0.18) : 0;
+  const grandTotal = cartTotal + deliveryFee + gstAmount;
 
   async function placeOrder() {
     if (!checkoutForm.name.trim() || !checkoutForm.phone.trim() || !checkoutForm.address.trim()) {
       setCheckoutError("કૃપા કરીને બધી વિગત ભરો.");
+      return;
+    }
+    if (billOption === "with-bill" && !gstNumber.trim()) {
+      setCheckoutError("કૃપા કરીને GST નંબર ભરો.");
       return;
     }
     setCheckoutError("");
@@ -1832,7 +1873,12 @@ export default function ApniDukanApp() {
     const order = {
       id: uid("ord"),
       items: cartItems.map((i) => ({ id: i.id, name: i.name, price: i.price, qty: i.qty })),
-      total: cartTotal + (cartTotal > 999 ? 0 : 49),
+      subtotal: cartTotal,
+      deliveryFee,
+      billOption,
+      gstNumber: billOption === "with-bill" ? gstNumber.trim() : undefined,
+      gstAmount,
+      total: grandTotal,
       customer: { ...checkoutForm },
       payment: "કેશ ઓન ડિલિવરી",
       status: "નવો",
@@ -1851,6 +1897,8 @@ export default function ApniDukanApp() {
       setLastOrderId(String(nextOrders.length));
       setView("success");
       setCheckoutForm({ name: "", phone: "", address: "" });
+      setBillOption("no-bill");
+      setGstNumber("");
       // Fire the real push notification via the Vercel API route — this
       // works even if the admin's phone screen is off / app is closed,
       // unlike the browser Notification API which only fires while a tab
@@ -2266,10 +2314,102 @@ export default function ApniDukanApp() {
                   ))}
                 </div>
                 <div style={styles.summaryBox}>
+                  <div
+                    style={{
+                      background: "linear-gradient(90deg, #1f3a1f, #2f6b3a)",
+                      color: "#fff",
+                      borderRadius: 10,
+                      padding: "10px 14px",
+                      textAlign: "center",
+                      fontSize: 13,
+                      fontWeight: 700,
+                      marginBottom: 14,
+                    }}
+                  >
+                    🧾 પાક્કું બિલ, પાક્કો સોદો!
+                  </div>
+
+                  <div style={{ fontSize: 14, fontWeight: 800, color: "#2a2a2a", marginBottom: 10 }}>
+                    ઓર્ડર કેવી રીતે કરવો છે?
+                  </div>
+
+                  <div
+                    onClick={() => setBillOption("no-bill")}
+                    style={{
+                      background: "#fff",
+                      border: `2px solid ${billOption === "no-bill" ? T.orange : T.hairline}`,
+                      borderRadius: 12,
+                      padding: 14,
+                      marginBottom: 10,
+                      cursor: "pointer",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: T.ink }}>બિલ વગર</span>
+                      <span
+                        style={{
+                          fontSize: 11,
+                          padding: "2px 8px",
+                          borderRadius: 10,
+                          background: billOption === "no-bill" ? T.orange : "#eee",
+                          color: billOption === "no-bill" ? "#fff" : "#666",
+                        }}
+                      >
+                        સીધો ઓર્ડર
+                      </span>
+                    </div>
+                    <p style={{ margin: "6px 0 0", fontSize: 12, color: "#8a8378" }}>કોઈ GST નહીં, સીધું ચેકઆઉટ પર જાવ</p>
+                  </div>
+
+                  <div
+                    onClick={() => setBillOption("with-bill")}
+                    style={{
+                      background: billOption === "with-bill" ? "#fff7f2" : "#fff",
+                      border: `2px solid ${billOption === "with-bill" ? T.orange : T.hairline}`,
+                      borderRadius: 12,
+                      padding: 14,
+                      marginBottom: 14,
+                      cursor: "pointer",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: T.ink }}>બિલ સાથે (GST સહિત)</span>
+                      <span
+                        style={{
+                          fontSize: 11,
+                          padding: "2px 8px",
+                          borderRadius: 10,
+                          background: billOption === "with-bill" ? T.orange : "#eee",
+                          color: billOption === "with-bill" ? "#fff" : "#666",
+                        }}
+                      >
+                        18% GST
+                      </span>
+                    </div>
+                    <p style={{ margin: "6px 0 0", fontSize: 12, color: "#8a8378" }}>Proper GST બિલ મળશે — બિઝનેસ ખરીદી માટે</p>
+                    {billOption === "with-bill" && (
+                      <div style={{ marginTop: 10 }}>
+                        <label style={{ fontSize: 12, color: "#565b52", display: "block", marginBottom: 4, fontWeight: 700 }}>
+                          GST નંબર
+                        </label>
+                        <input
+                          style={styles.textInput}
+                          placeholder="દા.ત. 24ABCDE1234F1Z5"
+                          value={gstNumber}
+                          onChange={(e) => setGstNumber(e.target.value)}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      </div>
+                    )}
+                  </div>
+
                   <div style={styles.summaryRow}><span>સબટોટલ</span><span>{formatRs(cartTotal)}</span></div>
-                  <div style={styles.summaryRow}><span>ડિલિવરી</span><span>{cartTotal > 999 ? "મફત" : formatRs(49)}</span></div>
+                  {billOption === "with-bill" && (
+                    <div style={styles.summaryRow}><span>GST (18%)</span><span>{formatRs(gstAmount)}</span></div>
+                  )}
+                  <div style={styles.summaryRow}><span>ડિલિવરી</span><span>{deliveryFee === 0 ? "મફત" : formatRs(deliveryFee)}</span></div>
                   <div style={{ ...styles.summaryRow, ...styles.summaryTotal }}>
-                    <span>કુલ</span><span>{formatRs(cartTotal + (cartTotal > 999 ? 0 : 49))}</span>
+                    <span>કુલ</span><span>{formatRs(grandTotal)}</span>
                   </div>
                   <button style={styles.primaryBtn} onClick={() => setView("checkout")}>ચેકઆઉટ કરો</button>
                 </div>
@@ -2312,9 +2452,13 @@ export default function ApniDukanApp() {
 
               <div style={{ ...styles.summaryBox, marginTop: 20 }}>
                 <div style={styles.summaryRow}><span>વસ્તુઓ ({cartCount})</span><span>{formatRs(cartTotal)}</span></div>
+                {billOption === "with-bill" && (
+                  <div style={styles.summaryRow}><span>GST (18%)</span><span>{formatRs(gstAmount)}</span></div>
+                )}
+                <div style={styles.summaryRow}><span>ડિલિવરી</span><span>{deliveryFee === 0 ? "મફત" : formatRs(deliveryFee)}</span></div>
                 <div style={{ ...styles.summaryRow, ...styles.summaryTotal }}>
                   <span>કુલ ચૂકવવાનું (ડિલિવરી વખતે)</span>
-                  <span>{formatRs(cartTotal + (cartTotal > 999 ? 0 : 49))}</span>
+                  <span>{formatRs(grandTotal)}</span>
                 </div>
                 <button style={styles.primaryBtn} onClick={placeOrder} disabled={saving}>
                   {saving ? "સેવ થાય છે..." : "ઓર્ડર કન્ફર્મ કરો"}
@@ -2392,32 +2536,71 @@ export default function ApniDukanApp() {
               </button>
               <div style={styles.adminSectionTitle}><ClipboardList size={16} /> ઓર્ડર્સ ({orders.length})</div>
               {orders.length === 0 && <p style={{ color: "#a49c88", fontSize: 13 }}>હજુ કોઈ ઓર્ડર નથી.</p>}
-              {orders.map((o, idx) => (
-                <div key={o.id} style={styles.orderCard}>
-                  <div style={styles.orderTopRow}>
-                    <span style={{ fontWeight: 700, fontSize: 12 }}>ઓર્ડર #{orders.length - idx} · {o.customer.name}</span>
-                    <span style={styles.orderStatusTag}>{o.status}</span>
+              {groupOrdersByDate(orders).map((group, groupIdx) => {
+                const defaultOpen = groupIdx === 0;
+                const toggled = expandedDateGroups.has(group.label);
+                const isOpen = toggled ? !defaultOpen : defaultOpen;
+                return (
+                  <div key={group.label} style={{ marginBottom: 10 }}>
+                    <button
+                      onClick={() =>
+                        setExpandedDateGroups((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(group.label)) next.delete(group.label);
+                          else next.add(group.label);
+                          return next;
+                        })
+                      }
+                      style={{
+                        width: "100%",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        background: T.surface2,
+                        border: `1px solid ${T.hairline}`,
+                        borderRadius: 10,
+                        padding: "10px 12px",
+                        cursor: "pointer",
+                        fontFamily: "inherit",
+                      }}
+                    >
+                      <span style={{ fontSize: 13, fontWeight: 800, color: T.ink }}>
+                        📅 {group.label} ({group.items.length})
+                      </span>
+                      <span style={{ fontSize: 11, color: T.inkSoft, fontWeight: 700 }}>
+                        {isOpen ? "છુપાવો ▲" : "જુઓ ▼"}
+                      </span>
+                    </button>
+                    {isOpen &&
+                      group.items.map(({ order: o, orderNumber }) => (
+                        <div key={o.id} style={{ ...styles.orderCard, marginTop: 8 }}>
+                          <div style={styles.orderTopRow}>
+                            <span style={{ fontWeight: 700, fontSize: 12 }}>ઓર્ડર #{orderNumber} · {o.customer.name}</span>
+                            <span style={styles.orderStatusTag}>{o.status}</span>
+                          </div>
+                          <div style={{ fontSize: 10.5, color: "#a49c88", marginTop: 2 }}>{formatOrderDate(o.createdAt)}</div>
+                          <div style={{ fontSize: 11, color: "#8a8378", marginTop: 4 }}>{o.customer.phone}</div>
+                          <div style={{ fontSize: 11, color: "#8a8378", marginBottom: 4 }}>{o.customer.address}</div>
+                          <div style={{ fontSize: 12, color: "#2c2a26" }}>
+                            {o.items.map((i) => `${i.name} x${i.qty}`).join(", ")}
+                          </div>
+                          <div style={{ fontWeight: 800, fontSize: 13, margin: "4px 0" }}>{formatRs(o.total)}</div>
+                          <div style={styles.statusRow}>
+                            {["નવો", "કન્ફર્મ", "ડિલિવર થયો"].map((s) => (
+                              <button
+                                key={s}
+                                onClick={() => updateOrderStatus(o.id, s)}
+                                style={{ ...styles.statusBtn, ...(o.status === s ? styles.statusBtnActive : {}) }}
+                              >
+                                {s}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
                   </div>
-                  <div style={{ fontSize: 10.5, color: "#a49c88", marginTop: 2 }}>{formatOrderDate(o.createdAt)}</div>
-                  <div style={{ fontSize: 11, color: "#8a8378", marginTop: 4 }}>{o.customer.phone}</div>
-                  <div style={{ fontSize: 11, color: "#8a8378", marginBottom: 4 }}>{o.customer.address}</div>
-                  <div style={{ fontSize: 12, color: "#2c2a26" }}>
-                    {o.items.map((i) => `${i.name} x${i.qty}`).join(", ")}
-                  </div>
-                  <div style={{ fontWeight: 800, fontSize: 13, margin: "4px 0" }}>{formatRs(o.total)}</div>
-                  <div style={styles.statusRow}>
-                    {["નવો", "કન્ફર્મ", "ડિલિવર થયો"].map((s) => (
-                      <button
-                        key={s}
-                        onClick={() => updateOrderStatus(o.id, s)}
-                        style={{ ...styles.statusBtn, ...(o.status === s ? styles.statusBtnActive : {}) }}
-                      >
-                        {s}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
 
               <div style={{ ...styles.adminSectionTitle, marginTop: 24 }}><Tag size={16} /> કેટેગરી મેનેજ કરો</div>
               <div style={{ display: "flex", gap: 8 }}>
