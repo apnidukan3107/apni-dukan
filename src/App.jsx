@@ -2437,6 +2437,7 @@ export default function ApniDukanApp() {
                 )}
               </div>
             ) : (
+            <>
             <div style={styles.grid}>
               {filtered.map((p) => (
                 <div key={p.id} style={styles.card}>
@@ -2492,6 +2493,7 @@ export default function ApniDukanApp() {
                 <div style={styles.missionText2}>Every order backs local youth livelihoods</div>
               </div>
             </div>
+            </>
             )}
           </div>
         )}
