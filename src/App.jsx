@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import {
   Search, ShoppingCart, Plus, Minus, X, ArrowLeft, Check,
   Settings, Package, ClipboardList, Trash2, Lock, Loader2,
-  Pencil, ImagePlus, Tag
+  Pencil, ImagePlus, Tag, MessageSquare, Download, Bell
 } from "lucide-react";
 import { initializeApp } from "firebase/app";
 import { getFirestore, doc, getDoc, setDoc, deleteDoc, onSnapshot, collection, getDocs, writeBatch } from "firebase/firestore";
@@ -119,6 +119,38 @@ async function productsBulkSave(productList) {
     });
     await batch.commit();
   }
+}
+
+// ---- Enquiries: same per-document pattern as products, so each enquiry
+// (which can include a photo) never risks hitting Firestore's 1MB single
+// -document limit, and stays inside the "store" collection the security
+// rules already allow. ----
+const ENQUIRY_KEY_PREFIX = "enquiry__";
+function enquiryKey(id) {
+  return ENQUIRY_KEY_PREFIX + id;
+}
+function enquiriesListen(onChange) {
+  return onSnapshot(
+    collection(db, "store"),
+    (snap) => {
+      const list = snap.docs
+        .filter((d) => d.id.startsWith(ENQUIRY_KEY_PREFIX))
+        .map((d) => {
+          const { type, ...fields } = d.data();
+          return { id: d.id.slice(ENQUIRY_KEY_PREFIX.length), ...fields };
+        })
+        .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      onChange(list);
+    },
+    (err) => console.error("enquiriesListen error", err)
+  );
+}
+async function enquirySave(enquiry) {
+  const { id, ...rest } = enquiry;
+  await setDoc(doc(db, "store", enquiryKey(id)), { ...rest, type: "enquiry" });
+}
+async function enquiryDelete(id) {
+  await deleteDoc(doc(db, "store", enquiryKey(id)));
 }
 // One-time migration: if no per-document products exist yet inside "store",
 // pull whatever exists in the legacy single-document blob (store/products)
@@ -1578,6 +1610,44 @@ export default function ApniDukanApp() {
 
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("બધું");
+  const ENQUIRY_CAT = "નવી પૂછપરછ";
+  const [enquiryText, setEnquiryText] = useState("");
+  const [enquiryPhoto, setEnquiryPhoto] = useState(null);
+  const [enquirySubmitting, setEnquirySubmitting] = useState(false);
+  const [enquirySubmitted, setEnquirySubmitted] = useState(false);
+
+  const handleEnquiryPhoto = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setEnquiryPhoto(reader.result);
+    reader.readAsDataURL(file);
+  };
+
+  const submitEnquiry = async () => {
+    if (!enquiryText.trim() && !enquiryPhoto) return;
+    setEnquirySubmitting(true);
+    try {
+      const enquiryId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      await enquirySave({
+        id: enquiryId,
+        text: enquiryText.trim(),
+        photo: enquiryPhoto || null,
+        createdAt: Date.now(),
+        status: "નવી",
+      });
+      setEnquirySubmitted(true);
+      setEnquiryText("");
+      setEnquiryPhoto(null);
+      setTimeout(() => setEnquirySubmitted(false), 2500);
+    } catch (err) {
+      console.error("Enquiry submit failed:", err);
+      alert("પૂછપરછ મોકલવામાં તકલીફ થઈ, ફરી પ્રયત્ન કરો.");
+    } finally {
+      setEnquirySubmitting(false);
+    }
+  };
+
   const [cart, setCart] = useState({});
   const [view, setView] = useState("home");
   const [lastOrderId, setLastOrderId] = useState("");
@@ -1829,6 +1899,38 @@ export default function ApniDukanApp() {
       }
       prevOrderIdsRef.current = new Set(parsed.map((o) => o.id));
       setOrders(parsed);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Live enquiries — same real-time + notification pattern as orders, so
+  // the admin finds out about a new "New Enquiry" submission immediately.
+  const [enquiries, setEnquiries] = useState([]);
+  const firstEnquiriesLoadRef = useRef(true);
+  const prevEnquiryIdsRef = useRef(new Set());
+
+  useEffect(() => {
+    const unsubscribe = enquiriesListen((list) => {
+      if (firstEnquiriesLoadRef.current) {
+        firstEnquiriesLoadRef.current = false;
+      } else {
+        const newOnes = list.filter((e) => !prevEnquiryIdsRef.current.has(e.id));
+        if (newOnes.length > 0) {
+          playOrderBeep();
+          if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+            newOnes.forEach((e) => {
+              try {
+                new Notification("📩 નવી પૂછપરછ આવી!", {
+                  body: e.text ? e.text.slice(0, 80) : "ફોટો સાથે પૂછપરછ",
+                  tag: e.id,
+                });
+              } catch {}
+            });
+          }
+        }
+      }
+      prevEnquiryIdsRef.current = new Set(list.map((e) => e.id));
+      setEnquiries(list);
     });
     return () => unsubscribe();
   }, []);
@@ -2253,7 +2355,88 @@ export default function ApniDukanApp() {
                   {c}
                 </button>
               ))}
+              <button
+                onClick={() => setCategory(ENQUIRY_CAT)}
+                style={{
+                  ...styles.catChip,
+                  ...(category === ENQUIRY_CAT ? { background: T.orange, color: "#fff", borderColor: T.orange } : { background: "#fff7f2", color: T.orange, borderStyle: "dashed", borderColor: T.orange }),
+                  fontWeight: 800,
+                }}
+              >
+                + {ENQUIRY_CAT}
+              </button>
             </div>
+            {category === ENQUIRY_CAT ? (
+              <div style={{ padding: "4px 16px 24px" }}>
+                <div style={{ fontSize: 13, color: T.inkSoft, marginBottom: 14 }}>
+                  તમારી જરૂરિયાત લખો, અથવા ફોટો અપલોડ કરો — અમે ટૂંક સમયમાં સંપર્ક કરીશું.
+                </div>
+                <label style={{ fontSize: 12.5, color: T.inkSoft, fontWeight: 700, marginBottom: 6, display: "block" }}>
+                  જરૂરિયાત વિગત
+                </label>
+                <textarea
+                  value={enquiryText}
+                  onChange={(e) => setEnquiryText(e.target.value)}
+                  placeholder="દા.ત. મારે 10mm સાઈઝના 50 V-belt જોઈએ છે..."
+                  rows={5}
+                  style={{
+                    width: "100%", boxSizing: "border-box", resize: "none",
+                    background: T.surface2, border: `1px solid ${T.hairline}`,
+                    borderRadius: 12, padding: "12px 14px", fontSize: 14.5,
+                    color: T.ink, fontFamily: "inherit", outline: "none",
+                  }}
+                />
+                <label style={{ fontSize: 12.5, color: T.inkSoft, fontWeight: 700, margin: "16px 0 6px", display: "block" }}>
+                  ફોટો (વૈકલ્પિક)
+                </label>
+                {!enquiryPhoto ? (
+                  <label style={{
+                    width: "100%", boxSizing: "border-box", padding: "22px 14px",
+                    background: T.surface2, border: `1.5px dashed ${T.hairline}`,
+                    borderRadius: 12, display: "flex", flexDirection: "column",
+                    alignItems: "center", gap: 6, cursor: "pointer", color: T.inkSoft,
+                  }}>
+                    <Plus size={22} color={T.orange} />
+                    <span style={{ fontSize: 13 }}>ફોટો અપલોડ કરવા ટેપ કરો</span>
+                    <input type="file" accept="image/*" onChange={handleEnquiryPhoto} style={{ display: "none" }} />
+                  </label>
+                ) : (
+                  <div style={{ position: "relative", borderRadius: 12, overflow: "hidden", border: `1px solid ${T.hairline}` }}>
+                    <img src={enquiryPhoto} alt="upload preview" style={{ width: "100%", display: "block", maxHeight: 200, objectFit: "cover" }} />
+                    <button
+                      onClick={() => setEnquiryPhoto(null)}
+                      style={{
+                        position: "absolute", top: 8, right: 8, width: 28, height: 28,
+                        borderRadius: 99, background: "rgba(36,40,42,0.75)", color: "#fff",
+                        border: "none", cursor: "pointer", fontSize: 16, lineHeight: "28px",
+                      }}
+                    >×</button>
+                  </div>
+                )}
+                <button
+                  onClick={submitEnquiry}
+                  disabled={(!enquiryText.trim() && !enquiryPhoto) || enquirySubmitting}
+                  style={{
+                    width: "100%", marginTop: 22, padding: "13px 0", borderRadius: 12,
+                    border: "none", fontSize: 15, fontWeight: 800, cursor: "pointer",
+                    background: (!enquiryText.trim() && !enquiryPhoto) ? T.hairline : T.orange,
+                    color: (!enquiryText.trim() && !enquiryPhoto) ? T.inkSoft : "#fff",
+                    boxShadow: (!enquiryText.trim() && !enquiryPhoto) ? "none" : "0 8px 18px rgba(216,83,31,0.3)",
+                  }}
+                >
+                  {enquirySubmitting ? "મોકલી રહ્યા છીએ..." : "પૂછપરછ મોકલો"}
+                </button>
+                {enquirySubmitted && (
+                  <div style={{
+                    marginTop: 14, background: T.greenLight, color: T.green,
+                    padding: "10px 14px", borderRadius: 10, fontSize: 13.5,
+                    fontWeight: 700, textAlign: "center",
+                  }}>
+                    ✓ મોકલાયું! અમે ટૂંક સમયમાં સંપર્ક કરીશું.
+                  </div>
+                )}
+              </div>
+            ) : (
             <div style={styles.grid}>
               {filtered.map((p) => (
                 <div key={p.id} style={styles.card}>
@@ -2309,6 +2492,7 @@ export default function ApniDukanApp() {
                 <div style={styles.missionText2}>Every order backs local youth livelihoods</div>
               </div>
             </div>
+            )}
           </div>
         )}
 
@@ -2571,6 +2755,63 @@ export default function ApniDukanApp() {
               <button style={{ ...styles.primaryBtn, marginTop: 0, marginBottom: 16 }} onClick={importSeedCatalog} disabled={saving}>
                 {saving ? "લોડ થાય છે..." : "Taparia Handtools કેટલોગ લોડ/અપડેટ કરો"}
               </button>
+
+              <div style={styles.adminSectionTitle}>
+                <MessageSquare size={16} /> નવી પૂછપરછ ({enquiries.length})
+              </div>
+              {enquiries.length === 0 && <p style={{ color: "#a49c88", fontSize: 13 }}>હજુ કોઈ પૂછપરછ નથી.</p>}
+              {enquiries.map((e) => (
+                <div key={e.id} style={{ ...styles.orderCard, marginBottom: 10 }}>
+                  <div style={styles.orderTopRow}>
+                    <span style={{ fontWeight: 700, fontSize: 12 }}>
+                      {new Date(e.createdAt).toLocaleString("gu-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+                    </span>
+                    <span style={styles.orderStatusTag}>{e.status || "નવી"}</span>
+                  </div>
+                  {e.text && (
+                    <div style={{ fontSize: 13, color: T.ink, marginTop: 6, whiteSpace: "pre-wrap" }}>{e.text}</div>
+                  )}
+                  {e.photo && (
+                    <div style={{ marginTop: 8 }}>
+                      <img
+                        src={e.photo}
+                        alt="enquiry"
+                        style={{ width: "100%", maxWidth: 220, borderRadius: 10, border: `1px solid ${T.hairline}`, display: "block" }}
+                      />
+                      <a
+                        href={e.photo}
+                        download={`enquiry-photo-${e.id}.jpg`}
+                        style={{
+                          marginTop: 6, display: "inline-flex", alignItems: "center", gap: 5,
+                          fontSize: 12, fontWeight: 700, color: T.green, textDecoration: "none",
+                          background: T.greenLight, padding: "6px 10px", borderRadius: 8,
+                        }}
+                      >
+                        <Download size={13} /> ફોટો ડાઉનલોડ કરો
+                      </a>
+                    </div>
+                  )}
+                  <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                    {e.status !== "થઈ ગયું" && (
+                      <button
+                        onClick={() => enquirySave({ ...e, status: "થઈ ગયું" })}
+                        style={{ ...styles.statusBtn, ...styles.statusBtnActive }}
+                      >
+                        ✓ થઈ ગયું તરીકે માર્ક કરો
+                      </button>
+                    )}
+                    <button
+                      onClick={() => {
+                        if (window.confirm("આ પૂછપરછ ડિલીટ કરવી છે?")) enquiryDelete(e.id);
+                      }}
+                      style={{ ...styles.statusBtn, color: "#b23b3b", borderColor: "#e3b8b8" }}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+
               <div style={styles.adminSectionTitle}><ClipboardList size={16} /> ઓર્ડર્સ ({orders.length})</div>
               {orders.length === 0 && <p style={{ color: "#a49c88", fontSize: 13 }}>હજુ કોઈ ઓર્ડર નથી.</p>}
               {groupOrdersByDate(orders).map((group, groupIdx) => {
