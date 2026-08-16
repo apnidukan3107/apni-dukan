@@ -2053,6 +2053,26 @@ export default function ApniDukanApp() {
           }),
         }).catch(() => {});
       } catch {}
+      // Email notification via EmailJS — sends straight from the browser,
+      // no backend needed. Never blocks the customer's order if it fails.
+      try {
+        fetch("https://api.emailjs.com/api/v1.0/email/send", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            service_id: "service_yg8sysc",
+            template_id: "template_h01cv8i",
+            user_id: "40etdMV1rISl5hS5f",
+            template_params: {
+              customer_name: order.customer.name,
+              customer_phone: order.customer.phone,
+              customer_address: order.customer.address,
+              total: formatRs(order.total),
+              order_details: order.items.map((i) => `${i.name} x${i.qty}`).join(", "),
+            },
+          }),
+        }).catch(() => {});
+      } catch {}
       if (!res) {
         setLoadError("ઓર્ડર થઈ ગયો, પણ સર્વર પર સેવ કરવામાં તકલીફ પડી — એડમિન પેનલમાં કદાચ ના દેખાય.");
       }
