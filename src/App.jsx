@@ -3379,7 +3379,7 @@ function IndependenceDayBanner() {
    search bar on the home screen, right-to-left marquee, and automatically
    disappears after AD_STRIP_END_TIME. No manual removal needed — it just
    stops rendering once the time has passed. */
-const AD_STRIP_END_TIME = "2026-08-17T06:45:00+05:30";
+const AD_STRIP_END_TIME = "2026-08-24T15:39:00+05:30";
 function AdStrip() {
   const [visible, setVisible] = React.useState(() => Date.now() < new Date(AD_STRIP_END_TIME).getTime());
   React.useEffect(() => {
