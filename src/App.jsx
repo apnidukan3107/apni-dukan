@@ -1611,6 +1611,8 @@ export default function ApniDukanApp() {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("બધું");
   const ENQUIRY_CAT = "નવી પૂછપરછ";
+  const [enquiryName, setEnquiryName] = useState("");
+  const [enquiryPhone, setEnquiryPhone] = useState("");
   const [enquiryText, setEnquiryText] = useState("");
   const [enquiryPhoto, setEnquiryPhoto] = useState(null);
   const [enquirySubmitting, setEnquirySubmitting] = useState(false);
@@ -1625,18 +1627,23 @@ export default function ApniDukanApp() {
   };
 
   const submitEnquiry = async () => {
+    if (!enquiryName.trim() || !enquiryPhone.trim()) return;
     if (!enquiryText.trim() && !enquiryPhoto) return;
     setEnquirySubmitting(true);
     try {
       const enquiryId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       await enquirySave({
         id: enquiryId,
+        name: enquiryName.trim(),
+        phone: enquiryPhone.trim(),
         text: enquiryText.trim(),
         photo: enquiryPhoto || null,
         createdAt: Date.now(),
         status: "નવી",
       });
       setEnquirySubmitted(true);
+      setEnquiryName("");
+      setEnquiryPhone("");
       setEnquiryText("");
       setEnquiryPhoto(null);
       setTimeout(() => setEnquirySubmitted(false), 2500);
@@ -2409,6 +2416,39 @@ export default function ApniDukanApp() {
                 <div style={{ fontSize: 13, color: T.inkSoft, marginBottom: 14 }}>
                   તમારી જરૂરિયાત લખો, અથવા ફોટો અપલોડ કરો — અમે ટૂંક સમયમાં સંપર્ક કરીશું.
                 </div>
+
+                <label style={{ fontSize: 12.5, color: T.inkSoft, fontWeight: 700, marginBottom: 6, display: "block" }}>
+                  તમારું નામ
+                </label>
+                <input
+                  type="text"
+                  value={enquiryName}
+                  onChange={(e) => setEnquiryName(e.target.value)}
+                  placeholder="તમારું નામ લખો"
+                  style={{
+                    width: "100%", boxSizing: "border-box",
+                    background: T.surface2, border: `1px solid ${T.hairline}`,
+                    borderRadius: 12, padding: "12px 14px", fontSize: 14.5,
+                    color: T.ink, fontFamily: "inherit", outline: "none", marginBottom: 14,
+                  }}
+                />
+
+                <label style={{ fontSize: 12.5, color: T.inkSoft, fontWeight: 700, marginBottom: 6, display: "block" }}>
+                  ફોન નંબર
+                </label>
+                <input
+                  type="tel"
+                  value={enquiryPhone}
+                  onChange={(e) => setEnquiryPhone(e.target.value.replace(/[^0-9+ ]/g, ""))}
+                  placeholder="9XXXXXXXXX"
+                  style={{
+                    width: "100%", boxSizing: "border-box",
+                    background: T.surface2, border: `1px solid ${T.hairline}`,
+                    borderRadius: 12, padding: "12px 14px", fontSize: 14.5,
+                    color: T.ink, fontFamily: "inherit", outline: "none", marginBottom: 14,
+                  }}
+                />
+
                 <label style={{ fontSize: 12.5, color: T.inkSoft, fontWeight: 700, marginBottom: 6, display: "block" }}>
                   જરૂરિયાત વિગત
                 </label>
@@ -2453,13 +2493,13 @@ export default function ApniDukanApp() {
                 )}
                 <button
                   onClick={submitEnquiry}
-                  disabled={(!enquiryText.trim() && !enquiryPhoto) || enquirySubmitting}
+                  disabled={!enquiryName.trim() || !enquiryPhone.trim() || (!enquiryText.trim() && !enquiryPhoto) || enquirySubmitting}
                   style={{
                     width: "100%", marginTop: 22, padding: "13px 0", borderRadius: 12,
                     border: "none", fontSize: 15, fontWeight: 800, cursor: "pointer",
-                    background: (!enquiryText.trim() && !enquiryPhoto) ? T.hairline : T.orange,
-                    color: (!enquiryText.trim() && !enquiryPhoto) ? T.inkSoft : "#fff",
-                    boxShadow: (!enquiryText.trim() && !enquiryPhoto) ? "none" : "0 8px 18px rgba(216,83,31,0.3)",
+                    background: (!enquiryName.trim() || !enquiryPhone.trim() || (!enquiryText.trim() && !enquiryPhoto)) ? T.hairline : T.orange,
+                    color: (!enquiryName.trim() || !enquiryPhone.trim() || (!enquiryText.trim() && !enquiryPhoto)) ? T.inkSoft : "#fff",
+                    boxShadow: (!enquiryName.trim() || !enquiryPhone.trim() || (!enquiryText.trim() && !enquiryPhoto)) ? "none" : "0 8px 18px rgba(216,83,31,0.3)",
                   }}
                 >
                   {enquirySubmitting ? "મોકલી રહ્યા છીએ..." : "પૂછપરછ મોકલો"}
@@ -2811,6 +2851,16 @@ export default function ApniDukanApp() {
                     </span>
                     <span style={styles.orderStatusTag}>{e.status || "નવી"}</span>
                   </div>
+                  {(e.name || e.phone) && (
+                    <div style={{ fontSize: 13.5, fontWeight: 700, color: T.ink, marginTop: 8 }}>
+                      {e.name}
+                      {e.phone && (
+                        <a href={`tel:${e.phone}`} style={{ color: T.orange, marginLeft: 8, fontWeight: 700, textDecoration: "none" }}>
+                          📞 {e.phone}
+                        </a>
+                      )}
+                    </div>
+                  )}
                   {e.text && (
                     <div style={{ fontSize: 13, color: T.ink, marginTop: 6, whiteSpace: "pre-wrap" }}>{e.text}</div>
                   )}
