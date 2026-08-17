@@ -2114,6 +2114,24 @@ export default function ApniDukanApp() {
     }
   }
 
+  // One-time fix: washer products were already saved in Firestore with an
+  // older photo baked in, so updating WASHER_IMG in code alone doesn't
+  // change what's already stored. This re-saves just those 10 products
+  // with today's WASHER_IMG.
+  async function refreshWasherPhotos() {
+    setSaving(true);
+    try {
+      const washerProducts = SEED_PRODUCTS.filter((p) => p.id.startsWith("wsh-"));
+      await productsBulkSave(washerProducts);
+      alert("વોશર ફોટો અપડેટ થઈ ગયો!");
+    } catch (err) {
+      console.error(err);
+      alert("અપડેટ કરવામાં તકલીફ થઈ.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function saveProduct() {
     if (!newProduct.name.trim() || !newProduct.price) return;
     const stockVal = newProduct.stock === "" ? undefined : Number(newProduct.stock);
@@ -2776,6 +2794,9 @@ export default function ApniDukanApp() {
               )}
               <button style={{ ...styles.primaryBtn, marginTop: 0, marginBottom: 16 }} onClick={importSeedCatalog} disabled={saving}>
                 {saving ? "લોડ થાય છે..." : "Taparia Handtools કેટલોગ લોડ/અપડેટ કરો"}
+              </button>
+              <button style={{ ...styles.primaryBtn, marginTop: 0, marginBottom: 16, background: T.green }} onClick={refreshWasherPhotos} disabled={saving}>
+                {saving ? "અપડેટ થાય છે..." : "🪛 વોશર ફોટો અપડેટ કરો"}
               </button>
 
               <div style={styles.adminSectionTitle}>
