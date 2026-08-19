@@ -2316,6 +2316,7 @@ export default function ApniDukanApp() {
 
   return (
     <div style={styles.appShell} className="app-shell">
+      <FallingLogoAdsOverlay />
       <link rel="preconnect" href="https://fonts.googleapis.com" />
       <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Noto+Sans+Gujarati:wght@400;600;700;800&display=swap" rel="stylesheet" />
       <style>{`
@@ -2615,7 +2616,6 @@ export default function ApniDukanApp() {
                 <div style={styles.missionText2}>Every order backs local youth livelihoods</div>
               </div>
             </div>
-            <FallingLogoAdsOverlay />
             </>
             )}
           </div>
@@ -3554,9 +3554,12 @@ function FallingLogoAdsOverlay() {
   return (
     <div
       style={{
-        position: "relative", width: "100%", height: 90,
-        background: "#fff", borderRadius: 12, overflow: "hidden",
-        border: `1px solid ${T.hairline}`, margin: "0 0 10px",
+        position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 9999,
+        maxWidth: 480, margin: "0 auto",
+        width: "100%", height: 80,
+        background: "#fff", overflow: "hidden",
+        borderTop: `1px solid ${T.hairline}`,
+        boxShadow: "0 -4px 14px rgba(0,0,0,0.12)",
       }}
     >
       <div
