@@ -2425,7 +2425,6 @@ export default function ApniDukanApp() {
         {view === "home" && (
           <div style={styles.scrollArea}>
             <JanmashtamiBanner />
-            <UrgentOrdersBanner />
             <IndependenceDayBanner />
             <AdStrip />
             <div style={styles.searchWrap}>
