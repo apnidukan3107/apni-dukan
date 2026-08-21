@@ -497,7 +497,7 @@ const BOLT_IMG = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgc
 const PANPHILLIP_IMG = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAEKAZADASIAAhEBAxEB/8QAHAABAAIDAQEBAAAAAAAAAAAAAAUGAwQHAgEI/8QAQRAAAQMDAgMFBQYFBAEDBQAAAQACAwQFERIhBjFBEyJRYXEUMoGRoQcVI0Kx0SQzUsHwYoLh8aIWJXJDU5Kywv/EABUBAQEAAAAAAAAAAAAAAAAAAAAB/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8A76iIgIiICIiAiIgIiICIiAiIgIiICIiAiIgIiICIiAiIgIiICIiAiIgIiICIiAiIgIiICIiAiIgIiICIiAiIgIiICIiAiIgIiICIiAiIgIiICIiAiIgIiICIiAiIgLy57WDLiGjxJwtO7XOG02+SrnOzdmj+px5BQFiludfQy1lRVsfJNIXMxH/Lb0bv5fqgsvt1Hq0+1wavDtBlZmva4Za4EeRyqbXvc2Vxq7dRVOeRkgaSfisFHXSRu7K32+lpXOOTobgH4DkgveQiqvDt8q5LpJaLlJFJUAOkjezYlgxzHlnGVakBERAREQEREBERAREQEREBERAREQEREBERAREQEREBERAREQEREBERARFrXCsjt9DNVS50RtzgcyeQCDYJA5nCwMr6OSd8EdVC+Zgy6NrwXNHmByVBdU8QXytmrKS5Ngiz2bKcNBDMdT1yt+ktTqOd1VWU1umnI78phbrd69UFyiqqeZzmxTxvc04cGuBIPmsqp0FspHVLqm2W6GjqH7PmZCBq9fFe7bd6q3X37ruFdFURzbwuDcGPbkd/H9QgtyIiAiIgIiIKnx04G1QwSQmSOSTORt3m7gA9Cd1pW+/W+GyMkkoqiAMbsIzqLfLx+a2+OvaDSUoppWiTU7Swux3tsHdVqrlmZbR7ZTxuqS3vZjLcn4ckEDWfak2Ooex9tklw4gH22OPPq0g4+asfDXE1tvEBlkopmTA40tnDmH/dtlcuq308ta99RZjqzsRG45/8le+CayRx7P7shpAD3Hdj3j8SSg3pKi4jjqgkitsVJA97WBzcg6M83H5+q6s1cruAlk44t4rLoHM7VuIWvy4bjp03wuqBAKIUQEREBERAREQEREBERAREQEREBERAREQEREBERAREQEREBERAREQFXONpqmLh17aaATiV4jkaRnLSD09cKxqqcexGWyxBlS2CUS90u5HY536Y5oIKwXCX7p7aaiEMzdpGtcQWn45UFW/aZDQVMkL6J73MPvCQn/8Ag/qp+gkr22GJxqe2exmDIHCTV6Hqud3V19NwfI00uQe6972tKC/cMcRXHixskkNJNHCx2NTnuDCPUNGVH8VW+ntd9t0ouDGT69csIPNo3wBz6cz4qK4WrbrUVjm1l2DnbDSyocWNHpn+62eIxaIbtC0Uss9Q7GqQjuHyHUknCo7LDIJoWSN5PaHD0Iyvax05caeMvbpeWjU0dDjksigIiICIiClfaF7K6lpmVDpGDDyXMGe7tnbqq/Ugx2aBtLUtMejuuc7TkehVj49dVNp6b2eBk+7sRuGcu259cYVWuEsL7ZG2UOp3Fn8sHI9N/wDlBRJhXmqf2lXA7JOG4OforbwUyYTPZNO0jOSQ1wwPiqE8WU1UmKmUOzuHPcAPhhXvgNtKS5sDToB2aSdygkiacfaHQMgo5JJO0bplkxg+OB6dSust5bLmMra5/HdAJJYqemMgwzYOdj6n15LpoQfSiIgIiICIiAiIgIiICIiAiIgIiICIiAiIgIiICIiAiIgIiICIiAiIgKqce+y/csQqo3PYZebTgjY5+fJWtVzjX2n7jHs8Yk/FbqaQD6bHnvhBUqKOjPD8fYF8UWnLWSM73xxlc2u4oJK2XXcqhu+C1jQP1K6dDLVGxt9so4+2xh7WAtAPp0XM7ncGMrJIo7WXkO3/AAC7P/kgmeDH0YqS2D2mRgOC97xkqwcQ/eRuNOaeCGKm93WeZPjny8AoPhCorZKwPbR9g3OGtMQH0/5KlOKaemdeqaSpubnTYyIQSdLeu35c+Ko7DTbUsQDtQDGjUfzbc1lWKmOaaLDdPcHd8NuSyqAiIgIiIKTx+1jmU38WaZ+l34vINGRvnocqu3F1QLdGHgVI0bzDD9Xgc/8AKsfHsgjjpnSUZqYg12Wt5uO2RlVO6RskoWGGZ8IEWzXjdo+CCiS1NSJ3tNtYMHZweBj6Z+qu3BDqsuLpxGxuc6mvzp/dUSGDTNI5t3a8+rf1JV54DazL3uqnVDSejgST6jmgk6ZtvP2lUha6WoqS/fIIA2ODk88fILqvNc2t5qn/AGgU4ZSQwwDV+L+Z2xyP02C6SgIiICIiAiIgIiICIiAiIgIiICIiAiIgIiICIiAiIgIiICIiAiIgIiICrPHLGvsTNVT2BEwIJGQdj/38FZlWuOTE2wAzU5mZ2reRILefUcvD4oKxQx1EVhjbHVe0Na3uSB2vI+P91z+5SXplXIWikEZOxkkLf0cr7RmmdYmujZLGNP8ALe3JaPh+y5fdILQ6slL7nO3vd5mQMfPdBYeE45RXaq2tp9R3/Cdnb9SpXiCSk++aaKGhlkfqB7Y7Nz0x/myg+DZrY2s00omlGcEvdkuP7KycQCqkuNOZ5I6akccMiAAfjqfE/oFR16EO7Fms5dpGSOpwvax0+n2ePRnRpGnPhhZFAREQEREFL46bM99I2lrGQSkHGsgAb899vJVO+uLKcippQ94j3wMDPl/0rJ9oZpS6kFXDK+INJLoveO/IeirN4dOyl/hK2Ps+zGkP7pPnz/dBz5joTI8vtL2AnZoZnP1V/wCAhM1rntoxECfAHHy5KixQ3rtJJIp4ng9dA2V44CjdKx5qKovOTlo5H48vkqJe0Njd9pUbprkaqVodiJpyIzjYeHwC6euacOvMn2guENv9mjYx2ZHHJft9PQLpagIiICIiAiIgIiICIiAiIgIiICIiAiIgIiICIiAiIgIiICIiAiIgIiICr/GIqPuQezSMY/tW5DjjI/zdWBVvjcwCwj2jXjtW4LDyO/8AbKCuxNq/uRvtUMb52g6nMbgOPjtsuX3bL66Qx2IOkB9/UMfULpVA2lbYYxQ1LmQ6SW9oC0jyPgucXWOtmrZHi7MbGTtlmoj44QTHCL699SRJBFTyDYaSNh5/4FLX1ttF8gDhLNXggucB3T4Nz19AoDhKJntha6tfUyN3OkAY8h4KzXyaokuVKKahjjhaR+K8758fRUdbiz2TMt0nSMjHIr2vMeRGMnJxz8V6UBERAREQUfjn2r2ykNG9hlDO7G8ZGc88Hnnl8FSOIH0mh75mvhn7Ma2MdjHiN/3Vw4/FG+rpm1JlZ3N3sBP5ttvI/qqjfzVtL2mBtQ1rABIDnPgTnJx8kFAg+6pJHv1ztAz3dB3+q6J9n5p5NfssJa7Gwc39VQ4X1xkkH3bC4g+Dz9MroHAjZjHJ7QI2Y3IYCC34f8IJrhwOf9ocjqm4dvM2NwbCwgiPbrjYbdPNdKXNuEDE7jmq9lonxRthdrllHeduOXhuukoCIiAiIgIiICIiAiIgIiICIiAiIgIiICIiAiIgIiICIiAiIgIiICIiAq/xiJnWIiFrXfiN1NdvkenrhWBV7jMRGxfiyui/Fbpc0Z335/DKCpsfizap6UQSHIcyM4x8DyXKry+0Cve2e3TEhxznO/yXVIiRYWCnrBUMAOiXVkkehH0XMrq2+itk7OogMefzv0n9UEzwY+FtSDTWswNz3S5p7xVh4iYX3eldVXEhxI/hmEHDepx4nlkqA4RZUtqwZ69he7mGuJx9d1O3Z8Db7StgoXukMjc1DvdLs7YHl4qjsMf8tuBjbl4L0vjNmjrtzX1QEREBERBROODVGvpxBFHUNEeTG7wzvy/zZUG/vpw6YRVJjIaMsJzpH+eAV244lp5LrCGVhp5QGgyA4Adk4GRyVG4jcY3TGSh1yk7PG4J67j/lBUoPZjrJujgP6db/ANMLoPAToGwnQHzDctDs/p/yueQlx1aqBhlJ7o7fb6LonA7520jxUNZAMEnBO3mBz+eUFk4SbVnjSsdWVkbyITohjAAbuOYHL9V0Ncz+zz2McT3MUMUpjEeDJIMZOeg89/kumICIvL3NY3U4gAcyThB6RY454pR+HIx//wAXArIgIiICIiAiIgIiICIiAiIgIiICIiAiIgIiICIiAiIgIiICIiAq7xm4mwuayJspMjcsPPGV94ovVTbqSSC3MElcYnSAHfQ0dceOVRYOLpuIOG2wzsMc7pQwkDvOc3ckoM2qP7lyyndE52dcOQ4NPUDOM/quUXT7nFweH1FUx4du3OACuv1MdRSWXRLIJnachxGXPHTIOCfmuRXWvrBXvH3bGBq2PZgE/A5QWPgyot5qHMijlec76nHLv8+StN6NYLrRieeOGnc4aKZoAOnqc8z4eG6qvCNdXuqh/CMjby1uOA34/srDX0tLFfoJnh5mL2l8krThx8BnoqOzNwGjC+qhUPFE9vqGioa59IT+J10D+pvl5K9scHsa5rgWuGQQeag9IiIPhXOeLuJa2W6QW+hcY6Zz3NkcDgv089/U4V/r5TBQTyDOWsOMLjlG251k1WY6QyyUVU8syffjfzb5HqCgkq6ft6unpW0gn0ACQE94E758yoHiGCeE1BFVnkCXN3aOm45K1UNzs1Q8snjeKjSBIQCHtI8R4hRV8t9NNTPdS10NW4Zy1w749M7lBzyKnrGtL23Z4ad89p+wV/4JdqoXsaTWPwcNJ2J6Z6/PCqtFZnS1AjNJUHJ2PYuH15K+2+ySU9H2U9ZBb4MbsY/L3D0aUHnhutnpLrcDUvhc6XutZCMBuDuQR4furnZOIW1VabfO/VKWl0bz+YDmD5j6qhCps9FVSMojJK4N0MDhv5lV2t4qntl7pqmJumOjf2kz+jjy0N8dtyg7herzS2O3Prat4awENaOrnHkAoeg4mpq5pfK9g0jL3E5bHnk3zcfBUL7Vb82suFFbYg8s7BkrXj3QZDz9Q39VU7fVzRVETqWo0RmV742v91kbBu8+J6/NB+gtVPO9o7MGQjUP6mjxP9K+tbPCNUcwezoyQ5z/ALv+1ym0cXy0sbBPHIdTTMWOO8hJ2Lz0HkrvbuJYKppkfONLCGvnA2c4/kjb/dBYmXCMENna6B3L8QYaT5FbgweRUaJo58sLWucAC9gIOkf6j09FiET6YdpTTaGk50O9xx8s7j4IJdFGx3YM2rYzTn+s+4fQ8/mpFrg4AtOQeRCD6iIgIvhIHPb1QOB5EH0KD6iIgIiICIiAiIgIiICIiAiKLvN4htUUQe9rJJnEM18tuaDemqoKYAzzRxA8i9wbn5rBTXi3Vkroqaup5ZG82skBI+Cq9XZorm0MmnJq5jrnnfuYmDfS0ch0+JUPW8L1I7eqgxIS4RUcJGXHoXE9EHTUXKDNxHb6yZlNPUMjpIszPY7XGD4DVstqj+0C7wmnbVU0U4l3GWmN7h455fRB01FT6L7QrbOwGpgngOrSXDD2jzyP2U9SX22V2fZ66B++MasH5HBQUZ95lZ9pU0UsLpaWop9GQPcIdsfTx9V4rLZa7ZcXGYH2Z83bRmPnG47OHoei2amB9HxCKlhHaU8h/wBzTzCmRduFuJWOp5J4WysO7HnQ5p8kGKbD7aG2ueCojAJEFQ0F3oAVyu4skbdCx1KyF5O/4fL55Vy4nr7TZKcmWrZJENmj849PFc9/9WW0Pc+O/wAkeeTX08m3yygvFktl0cBPBI6TGxdOwMaz02C93WkoKaqDq+5tnndzDTkMHgDyUZw9f7TVSthmvbJ3v2Be1wH1VqlsnCDKqI3StZNK4ao4tRDB54HP4oKleuIOyoKiWlpnPhLDHTjk6R2MbeQ6ldK4Er31vC9MJiTJE0MdnptyXJuKq6nrrwfuW2kU0OA2Ug5kcOu/QfJdI+zylnoeGGCb35Hl3PKC6OeAvBmAWB7zgrA6Q+KDJX5qaCeEHdzDj1XLZL9WWS6GSlcGMqG9nK4tyGkdceK6NPV6Gc1Qr42JtQ+cNBiccvbjl5oNp9bYbjRsqq66j24t3aImhw+mcLnN34mtj6p1E0Vj9JOJYgM/J37q6wU1traURSMjkaPdzzHoVgk4WtT3ZaHNPiHckFAi4ntdO/sjW3QYPuugaR/+y6Bw1f8Ahmth0uuT2hoy7XEA75rEOFrU0gyQMlIOQZG5K8vs9shB7KkgYfFrAEE9VcVcHWGGWS1UbayrfzOjOT4klcju92quLuI44HDVPVyhgawYDQf2CnbtT0tNE4MOjPmvXBlFT0Nx+8ZWh0xH4X+nzQXDjWggNzgjc0CJ9GI2OPizAI+WPmqpVcMPY6SShl2c10ODy0ncq6XmporjbTFVOLHA5jkAy5h8R+yo1v4nbRVrqSqnZIA7uSDYOH9jhB7FUG1Ps9ZCYmz1LDKcbdixuw+YC2aPXMIK6OYwao31shbuIo8kMa0eO3081MNZQ3aHfSQWgEj1/wCVGVtkqaYyOoHkxuDWOaOWlpyAgnbfxBW2xnZVcWGRtEz2F2QXu5GQ9T5eit1v4mpaoajOXuBDXSY70jz+Vg6DzXNmXNpqGsroMB9Q+ol1fmaxvcH+eCzxsaGtnjnw+OE1ExYd3SPOGMb4f9IOuMmjk1NaYwW/zAHd1mejndT5BYBSyUx7WildCXb6XDuP/wBm5+WFz2iu9wtR7GTErKYAYHumZ3TzO4+YVipuL4+0MEpw5o/HmccOJ54HgEFkN9FGP/c4TTtG3bA5Yfh7w+IWN1wqrgzVC51HTu91xbmVw8cHZvx3VShqLhxRcRVU8DY7VCf4ePH8x39Z8fJbk/EkdkuLKCSM1dxk2hp2O/8AJx6DzQSNVw++o1SOfJ5yTzFVmtor1Szg2ijqqwj88JLG/N2AfgugW9sk8bZa17ZJzuWtHcZ5Af3UlsR5IOZ0/Hd/sJA4j4er20gG87Wh+n1I5q/Wi8UF9t8ddbalk9O/k5vMHwI6Fat8A9kf/gXP+GZ3WbiGaopm9nTTHFRG3Zrv9QHig6yi+BwcA4HIO4I6r6gIiICIiAiIgIiICovFD4q3iOGmJaZIAwMDhsC5w3+SvS5pxHShvE1VUAkT917P9v8A2g256P2dlxkpp5GtEzdRDsl79jj03WV011pKidw0S9lGDDHyEYxjJ+v6quRzVUUWRMXte8VGl35sYW2+/VLW10kkJIqWjSGnPdxhBMC9NfiGemc2kLO1lfp9/wAgPTZZDU2qveJ9EbqypjLIQ4YcxvXA6fsFqR3ujkqJHuDWwxQANaRjJJOf0WaGChnNIWFrXmMvcQcEA8x9UGJ3CdrkMDaaUx01MC57muy6Z58T4E/QKKm4QuDImiCRk9RUyZDXbCOPxJ+uykGWosggNPUPbE6YmOIO2OfFZvabzB24LmSvEmlzzsGtOMgf55IKvUMrbZFVSnt2wREM7Yk4c7wAPP8AwKOuNrNVUASjsaks1v7uhw9R+q6AeIIKZpFbSHRT4LctyXnxx67/AAWbTabm6obmNlXUtHbP5PDOmT08T8EHJKuxyVMYjmmNTHnYPAd/ysUfBFJVN0Noqd2k7tJ0kfDOV1d/C1rlfE+kd2dLSR6Y42O/mOxnLndfE/DKhJuCLl2ETIqlrq6ok1yahhkUfh5lBXKDgeGlIwyKJo6AZPzVhhtdDTNadAL2jAc45KjKmnutvhratrZ46WndoY4n+a7yHX1+AWtUVda+qgpKgvhqXx9q6Mt0lo5nPhtz8EEsIxcK0RRgBoPecOgXQ7e+NlLHFE3DGNwAueWi60DIwMOYNWkvAyM/qrtabhb6hgEdZCXZxpLtJ+RwgmiNSxviz6LZDcDJUZd7oKDsoIGNlrJ/5UZ5AdXO8h9UGtXtZFGXSyNYPFxwqbcuy75NRFo57uVygtbat4fPiqqT70snIeg6Ba19slP7J2PZunqH+5FCwDPqegQcpmhkMrpLVWsD+ZZn+y13XviClJbJRmUDmWFTN04f4ioWufLV0lK3mGRxajjzKcPXOt7bsblFBUw//cibpe34ciggzxPdnbfdk/yWE1vEddtDSdiD1cuw09rpKmFk0LGPjeMhwC2G2eEfkaEHGIeGrjVSiSskfI7ng8grVaOG5I3NLgQF0Jlsgb+QfJbMdGxuMAYQUm48Pukpi0ZyVQ6/hBwcS5mrwXdZKVjh7qjKq1skB7qDiUNLcbYf4aQuaPyOVhtvEwJbFUNdG7rnkrVX2FpLi1uCq7WWRrgQ5gz4oN2WGiuLDkNLi3Gfooiqt89EWyQvIa57S4DyOywto6mlfmKRwaOi32V8rGaamM6HbFwGQP2Qe7feewlYKqPXiWSocTvl/wCX5brcqmU9dLbbbCQ6aqIfPI0b4O7j/ZaE0LKlh7HBySfXI/dfeH3igvkc0nPGADz3wM/qg7FFHR2W06zogpqeLU49GtAXD6K+uuPGNbfpS1omdohb1Yzw+X1Vr+1ziYs4fpLTRvHa18h7UDnobzHxdj5LllI2SI9xhPgMIO+2a6sljHeP9lWONuOrrbr391UMkMEZhZJ22nU8l2eWdhjCh+HJ617GtaHg8sLV4ptdNeLt3bhDT1VPTtY8vdgagScZzjqqLrbr1LeOGKZ8r+0qDlshxjkfD0WnDSCEu27xKrfDXE1HYaGW13WPRJCSY5o++Jsqy226svFPLOyF0TWv0gOOdQwgvdklMtogLjlzQW59CpBRXD4ItTc9Xux81KqAiIgIiICIiAiIg+ZVX4rs0tWGV9E0Oq4Ocecdq3wHmrQeSirjI9sbtPNByp1xZRytiqWuimhdns3tLSGnmMFe461mA8YeI5MZ8Y3dfhlb9+trbi8mdmpw5E8x8VTqmz3KjP8ADTExjbS7fZBZvw++H4c6KQB+f6D1+pXoxGGSSRr3NdF3HaXflOP2VO+86+kyyopy4EaXOac5C3IOI6d5cJnFpczs352yOh+Cotza2tpDCGvD20xyQeuQd1tQ3yphiEU0ZBM+p7ue2dlX6a7Ry6MyAh0fZSHPXof88VsxVbZRGX//AFAYnHPJw5fogsLr5QTPrJSGukOGMyOv/a2HUdvnqtAc1rRD3yDu7wBPhzVWaYpRGCGguyx235xy/svkbXMeJGSvaZD2b9+oO36qC0QW+VkNG+nqC2PcRwk7EHlnx5ZWVlVdaankL/4h5l/EldthvMj/ADwwq3Bc6+nbAdTXtgBZ4Y7uy3oeKHsgMVRE5v4uXnGR7wQTUnEEURcK6lcIKYB7XPbkvdz5evySWW0VwlE/ZtqKtmXyEd/s/jyyVgberbVvnkkDNLW4DT15lezQW+uMReWguaS93XAAJHxJCCMl4XtVT7MaKQinpgTFA13813i88zk8/koWs4Yu8EdR7NURz3CV+qR78NZCwdB+/TkFY5LA2FgkoZ3tEJIaAfeI6f8A5FaUtsvdFTmlik7fLtZB6tGwBPm79FRBR1nEFtqZH08lRBQxR/iVJccSO/0t/QfEq22613iaE3OveXVczQdLxuxnRv7rBR09Rdr9SW6ojDaeF3bPwdnNZ+7v0V/rnshoZnuwA1qCjUXGrY6ptqpad89xe/QW/lafMq9U8Bijy46pXDL3+J/Zcg+z6SGv+0O6VLO9G0HB8Bnf6rsnaNIzlQVLiimD6d/dJd0VBo6GSmqn9rGWkc8hTP2r1dRBTUb4qhzIC8sla04zttn5FQVsqppuG4JgXaGudE9538x/cKotHBd1LrnVWt28Th2kJzsHD3gPUHPwV67PffK5dwu3sr7Szjl2gBPjnYrrGnB8VFYQweC9tjCyafJeg1BiMeQsL4AWnZbhavJagiZ6QOByoOutrXZ7itj4wVpzQhwIQc/qqAsPurVbFodsMFXOroMg7KFqKEtOcII9topqk5Y51NL/AFxjY+o/ZaFytMgp2Pi708OxeNicdQpqMGM7jkssZa6R7HdSgqjeHZrvf6C63CodKxkBIYf6s7KxmyUcQLuxGw3wFvwxCF4jDRgDZZnNBBB5EYIVHPjxk6W0SMom+x1gd3CwayR0wSNvAqCt9FRXrW4yFlX70msZcT5g81faTgaxRuIlinlbnIEk5G3+3G6o3FVp+471iCUyHS14e3ZzQc4z8kGO18HXO43aWnpJYoomN7QuL8MAzjkRz35Lptmtn3JbRRuqO3cDqc8NDRnyHh6rFwpTmmscdTK/VUVTGySEjGNtgPLmfirFbKX26va0jLGHU/08Pigs1rgdT22CN3vacn1O620RQEREBERAREQEREBatREHtOy2l8IQV6qtbZckhQtVZMg4aFd3MyMYWB9OHcwEHNquwNOdUYOVBVXDMT8kxD5LrctC09FoVFqa4HACDjNTw3JET2DnM6YBWo5lzpXEFxe0dP0XXKizcyG/RRNVZctOWfRBQG3iqaCJYiNRBOjoRyK3G3pjxIC/s3y4I/0vHVTtRYmOG7FFzWMsJICDI25tke8ahpmZuf6Xj/CssdaydzHO27ZulwPR4/fCjHWsDOYsZ5luxXn7ueHHs53NPPDhnfxyqJZr4pOxfIAdeYiD0dyH9lkY6XSJG1Dmd4xuGeXJQvs9xjYfw2z6yHExu91w64PoENY9skhqmvh7TGdbSMOHXdBaobzW0p0E5jjky7x97OfopOn4rkMhfLCWveBgeGAXZVNiuwkczkRIzQ/yd4/MLZguTAaaSTA0O7GQnp0z8iEHQuGauGe7T1OMDsGRtOMA4Jz9VpfafxCbbwzPHC/TJKNI+K8WqF0dEHQvw4Fwz8Vzn7SWXWrnYCwmFpGcboJH7KHNpILhUnPaSObGD5AZP6hdNbc5JO61pVG+ze1mDhaOSdpEk0rpCCOnIfopHi+/z8O22F9JHG6WV5aC8dBzx0ygjPtNrKKOzMoqqUtnndrZhpdjT129VzSycS11qhqaSlljnhl95kp1BvmAeq3K28U16nMlzc8znbVMeXkDyAUpwpwjbbjcppZ+0dSwQmR2Hc3cmjOPFBcuDXPrKW2TPc50jn76huO+usAbKi8N0YbcaaJjcMiGoY6ABXwDzUHzC9AJhfUHwheV6IXzCDGRstd7NytkheS1BoSRBw3Cj6imDs7KZdGVrSxbIKzNSgEnCjqqF7cPj95vPzCs08J32UVUsDQSgjqevZOQ0uAc3xPNSBkaQCCq/cKZr39rC7s5QdyOR9QtJnELaV3Z1QLcbauYKotJlDTzUJW2C33G5S19bLUPkcwMbDHhrQ0DkSckrXHEdvkPdnyega0n9FIUhmuDgIoJGsP53jH0Qb9FE9/Y0lMzVhoa0eAAxv4BXm20LKCmEbTqed3u8SoW10opIgIx3j7zjzPqp2FxI3UG0i8tK9ICIiAiIgIiICIiAiIg+FfML0iDwWghY3RDwWZEGlJTtcOS1JqAOb7v0UsWr4WoKzNawc91RlRZ99grq6Jrui130wPRBQpbWW5Gkn4LQltrQcubgei6FNRNOdlHT29pB2QUj2PQeuV67N2gskAez+lwyFZJrcMnZaEtIWnlsgg5LRa6gO1Uwhe4Y1wuLD+30Wo/hNr8+z3JwyN2zMzk+oU++DbksRjc07IJPhuOopbc2lrJGOnZ7xacg+Cy3GmZK4uLWnPkoyGqfTTB7hhpGCVIuqo5W81Rnt4DaQNaMBpxha13stHeBAK3tTFE4u0xvDSTjGM4Oy+004Y4jOAVklnB64QUzjHhW0ssUlRQ0rKV9M3UAwk6xnfOTuVh+z2AQ2eplIOuSbSM+AHL5lWC7wxXGiko5i7spMa9J3IBzjKzWaiZJJFQ00TIIWjB0N90eJ6k+qC38MUhbFJVvGNfdb/8RzU/la8BjihZFEMRsGAs+QVB6yvoOV4XpqD0iL6g842XzSvaIMZYCvLogVmRBoTUgcDsouptRdtgqxELy5gKCmvsIcTkLH/6WpJPfiB9QrgYAei+Cnx0QVum4bpIXAxwNHnhSkVtbHyG3gpMRYXsMyeiDVjpg07DAWw1mFk04X0AIAX1EQEREBERAREQEREBERAREQEREBfCF9RB8wvLmr2hGUGs9uVgfECOS3tI6ryYwfBBFSUwOdloS0QOdlYjEP6QsTqceCCry0PktKWjPgrbJS5WnNRHoEFSlpu6WluyjJYaimJ7HL4/A8wrfPRuwcNUe+3vdyCCtMuYY/EhLXDodlnfdInN7zwD1yt6q4WNY7vheafgamZIHPaXY6EoNCnc64SYgBc3q48grVbKUUsYZHnfcuPMlbNLZ2UzA1kYaApOCj07gBBmpg4N3W8zOMLFFEWrZa3AQfAF7AwgX1B8X1EQEREBERAREQMJhEQMIiICIiAiIgIiICIiAiIgIiICIiAiIgIiICIiAiIgIiICYREHgtC8uiDllRBpyUoI5LB7KByCkyAV50NQaDabxAWVsA/pW1oC+4CDX7Ef0r22IDphZcL6g8huF6wiICIiAiIgIiICIiAiIgIiICIiAiIgIiICIiAiIgIiICIiAiIgIiICIiAiIgIiICIiAiIgIiICIiAiIgIiICIiAiIgIiICIiAiIgIiICIiAiIgIiICIiAiIgIiIP/Z";
 const SEED_PRODUCTS = [
   { id: "nut-generic", name: "Nut (Size જણાવો)", category: "Nut Bolt N Washer", subcategory: "NUT", price: 99, mrp: null, img: "🔩", image: NUT_IMG, unit: "kg", requiresSize: true },
-  { id: "bolt-generic", name: "Bolt (Size જણાવો)", category: "Nut Bolt N Washer", subcategory: "BOLT", price: 99, mrp: null, img: "🔩", image: BOLT_IMG, unit: "kg", requiresSize: true },
+  { id: "bolt-generic", name: "Hex Bolt (Size જણાવો)", category: "Nut Bolt N Washer", subcategory: "Hex Bolt", price: 99, mrp: null, img: "🔩", image: BOLT_IMG, unit: "kg", requiresSize: true },
   { id: "pps-m4x6", name: "Pan Phillips Screw M4x6 (1000 pcs pkt)", category: "Nut Bolt N Washer", subcategory: "Pan Phillip Screws", price: 240, mrp: 300.0, img: "🔩", image: PANPHILLIP_IMG },
   { id: "pps-m4x8", name: "Pan Phillips Screw M4x8 (1000 pcs pkt)", category: "Nut Bolt N Washer", subcategory: "Pan Phillip Screws", price: 264, mrp: 330.0, img: "🔩", image: PANPHILLIP_IMG },
   { id: "pps-m4x10", name: "Pan Phillips Screw M4x10 (1000 pcs pkt)", category: "Nut Bolt N Washer", subcategory: "Pan Phillip Screws", price: 280, mrp: 350.0, img: "🔩", image: PANPHILLIP_IMG },
@@ -1725,7 +1725,7 @@ export default function ApniDukanApp() {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("બધું");
   const [subcategory, setSubcategory] = useState("બધું");
-  const NUT_BOLT_SUBCATS = ["બધું", "NUT", "BOLT", "Washer", "Pan Phillip Screws"];
+  const NUT_BOLT_SUBCATS = ["બધું", "NUT", "Hex Bolt", "Washer", "Pan Phillip Screws"];
   const ENQUIRY_CAT = "નવી પૂછપરછ";
   const [enquiryName, setEnquiryName] = useState("");
   const [sizeInputs, setSizeInputs] = useState({});
@@ -3114,112 +3114,6 @@ export default function ApniDukanApp() {
                 {saving ? "અપડેટ થાય છે..." : "🪛 વોશર ફોટો અપડેટ કરો"}
               </button>
 
-              {/* ---- 1. Sales Dashboard ---- */}
-              <div style={styles.adminSectionTitle}>📊 વેચાણ ડેશબોર્ડ</div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
-                <div style={{ background: "#fff", border: `1px solid ${T.hairline}`, borderRadius: 10, padding: 10 }}>
-                  <div style={{ fontSize: 10.5, color: T.inkSoft, fontWeight: 700 }}>આજનું વેચાણ</div>
-                  <div style={{ fontSize: 17, fontWeight: 800, color: T.ink, marginTop: 2 }}>{formatRs(dashboardStats.today)}</div>
-                </div>
-                <div style={{ background: "#fff", border: `1px solid ${T.hairline}`, borderRadius: 10, padding: 10 }}>
-                  <div style={{ fontSize: 10.5, color: T.inkSoft, fontWeight: 700 }}>આ અઠવાડિયે</div>
-                  <div style={{ fontSize: 17, fontWeight: 800, color: T.ink, marginTop: 2 }}>{formatRs(dashboardStats.week)}</div>
-                </div>
-                <div style={{ background: "#fff", border: `1px solid ${T.hairline}`, borderRadius: 10, padding: 10 }}>
-                  <div style={{ fontSize: 10.5, color: T.inkSoft, fontWeight: 700 }}>આ મહિને</div>
-                  <div style={{ fontSize: 17, fontWeight: 800, color: T.green, marginTop: 2 }}>{formatRs(dashboardStats.month)}</div>
-                </div>
-                <div style={{ background: "#fff", border: `1px solid ${T.hairline}`, borderRadius: 10, padding: 10 }}>
-                  <div style={{ fontSize: 10.5, color: T.inkSoft, fontWeight: 700 }}>કુલ ઓર્ડર્સ</div>
-                  <div style={{ fontSize: 17, fontWeight: 800, color: T.ink, marginTop: 2 }}>{dashboardStats.totalOrders}</div>
-                </div>
-              </div>
-              {dashboardStats.bestSelling.length > 0 && (
-                <div style={{ background: "#fff", border: `1px solid ${T.hairline}`, borderRadius: 10, padding: 10, marginBottom: 20 }}>
-                  <div style={{ fontSize: 11, fontWeight: 800, color: T.ink, marginBottom: 6 }}>🏆 સૌથી વધુ વેચાયેલા</div>
-                  {dashboardStats.bestSelling.map((b, i) => (
-                    <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, padding: "5px 0", borderBottom: i < dashboardStats.bestSelling.length - 1 ? `1px solid ${T.hairline}` : "none" }}>
-                      <span>{b.name}</span>
-                      <span style={{ fontWeight: 700, color: T.orange }}>{b.qty} વેચાયા</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* ---- 2. Low Stock Alert ---- */}
-              <div style={styles.adminSectionTitle}>⚠️ ઓછો સ્ટોક ({lowStockProducts.length})</div>
-              {lowStockProducts.length === 0 && (
-                <p style={{ color: "#a49c88", fontSize: 12.5, marginBottom: 16 }}>
-                  કોઈ પ્રોડક્ટમાં ઓછો સ્ટોક નથી. (સ્ટોક નંબર સેટ કરવા નીચે પ્રોડક્ટ લિસ્ટમાં "સ્ટોક" પર ટેપ કરો.)
-                </p>
-              )}
-              {lowStockProducts.map((p) => (
-                <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#fff", border: `1px solid ${T.hairline}`, borderRadius: 10, padding: "8px 12px", marginBottom: 8 }}>
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: T.ink }}>{p.name}</div>
-                    <div style={{ fontSize: 10.5, color: "#b23b3b", fontWeight: 700 }}>{p.stock === 0 ? "0 બાકી" : `ફક્ત ${p.stock} બાકી`}</div>
-                  </div>
-                  <span style={{ background: "#fde3e3", color: "#b23b3b", fontSize: 9.5, fontWeight: 800, padding: "3px 8px", borderRadius: 6 }}>
-                    {p.stock === 0 ? "OUT" : "LOW"}
-                  </span>
-                </div>
-              ))}
-              <div style={{ height: 10 }} />
-
-              {/* ---- 3. Bulk Price Update ---- */}
-              <div style={styles.adminSectionTitle}>💰 બલ્ક ભાવ અપડેટ ({bulkSelectedIds.size} પસંદ કરેલા)</div>
-              <div style={{ maxHeight: 220, overflowY: "auto", marginBottom: 8, border: `1px solid ${T.hairline}`, borderRadius: 10, background: "#fff" }}>
-                {products.slice(0, 100).map((p) => (
-                  <label
-                    key={p.id}
-                    style={{
-                      display: "flex", alignItems: "center", gap: 8, padding: "8px 10px",
-                      borderBottom: `1px solid ${T.hairline}`, fontSize: 11.5, cursor: "pointer",
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={bulkSelectedIds.has(p.id)}
-                      onChange={() => toggleBulkSelect(p.id)}
-                      style={{ width: 14, height: 14, flexShrink: 0 }}
-                    />
-                    <span style={{ flex: 1, fontWeight: 700, color: T.ink }}>{p.name}</span>
-                    <span style={{ color: T.inkSoft }}>{formatRs(p.price)}</span>
-                  </label>
-                ))}
-              </div>
-              <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-                <input
-                  type="text"
-                  value={bulkAdjustValue}
-                  onChange={(e) => setBulkAdjustValue(e.target.value)}
-                  placeholder="દા.ત. +10% અથવા -20 (₹)"
-                  style={{ flex: 1, fontSize: 12, padding: "8px 10px", border: `1px solid ${T.hairline}`, borderRadius: 8, background: T.surface2, color: T.ink }}
-                />
-                <button
-                  onClick={applyBulkPriceAdjust}
-                  disabled={bulkApplying || bulkSelectedIds.size === 0 || !bulkAdjustValue.trim()}
-                  style={{ background: T.orange, color: "#fff", fontWeight: 700, fontSize: 12, padding: "8px 16px", borderRadius: 8, border: "none" }}
-                >
-                  {bulkApplying ? "..." : "Apply"}
-                </button>
-              </div>
-
-              {/* ---- 4. Customer List ---- */}
-              <div style={styles.adminSectionTitle}>👥 ગ્રાહકો ({customerList.length})</div>
-              {customerList.length === 0 && <p style={{ color: "#a49c88", fontSize: 12.5, marginBottom: 16 }}>હજુ કોઈ ઓર્ડર નથી.</p>}
-              {customerList.map((c) => (
-                <div key={c.phone} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#fff", border: `1px solid ${T.hairline}`, borderRadius: 10, padding: "8px 12px", marginBottom: 8 }}>
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: T.ink }}>{c.name}</div>
-                    <div style={{ fontSize: 10.5, color: T.inkSoft }}>{c.orderCount} ઓર્ડર્સ • {formatRs(c.totalSpent)} કુલ</div>
-                  </div>
-                  <a href={`tel:${c.phone}`} style={{ background: T.greenLight, color: T.green, fontSize: 10.5, fontWeight: 800, padding: "5px 10px", borderRadius: 8, textDecoration: "none" }}>
-                    📞 Call
-                  </a>
-                </div>
-              ))}
-              <div style={{ height: 10 }} />
 
 
               <div style={styles.adminSectionTitle}>
@@ -3654,6 +3548,114 @@ export default function ApniDukanApp() {
                   </button>
                 </div>
               ))}
+
+              {/* ---- 1. Sales Dashboard ---- */}
+              <div style={styles.adminSectionTitle}>📊 વેચાણ ડેશબોર્ડ</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
+                <div style={{ background: "#fff", border: `1px solid ${T.hairline}`, borderRadius: 10, padding: 10 }}>
+                  <div style={{ fontSize: 10.5, color: T.inkSoft, fontWeight: 700 }}>આજનું વેચાણ</div>
+                  <div style={{ fontSize: 17, fontWeight: 800, color: T.ink, marginTop: 2 }}>{formatRs(dashboardStats.today)}</div>
+                </div>
+                <div style={{ background: "#fff", border: `1px solid ${T.hairline}`, borderRadius: 10, padding: 10 }}>
+                  <div style={{ fontSize: 10.5, color: T.inkSoft, fontWeight: 700 }}>આ અઠવાડિયે</div>
+                  <div style={{ fontSize: 17, fontWeight: 800, color: T.ink, marginTop: 2 }}>{formatRs(dashboardStats.week)}</div>
+                </div>
+                <div style={{ background: "#fff", border: `1px solid ${T.hairline}`, borderRadius: 10, padding: 10 }}>
+                  <div style={{ fontSize: 10.5, color: T.inkSoft, fontWeight: 700 }}>આ મહિને</div>
+                  <div style={{ fontSize: 17, fontWeight: 800, color: T.green, marginTop: 2 }}>{formatRs(dashboardStats.month)}</div>
+                </div>
+                <div style={{ background: "#fff", border: `1px solid ${T.hairline}`, borderRadius: 10, padding: 10 }}>
+                  <div style={{ fontSize: 10.5, color: T.inkSoft, fontWeight: 700 }}>કુલ ઓર્ડર્સ</div>
+                  <div style={{ fontSize: 17, fontWeight: 800, color: T.ink, marginTop: 2 }}>{dashboardStats.totalOrders}</div>
+                </div>
+              </div>
+              {dashboardStats.bestSelling.length > 0 && (
+                <div style={{ background: "#fff", border: `1px solid ${T.hairline}`, borderRadius: 10, padding: 10, marginBottom: 20 }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: T.ink, marginBottom: 6 }}>🏆 સૌથી વધુ વેચાયેલા</div>
+                  {dashboardStats.bestSelling.map((b, i) => (
+                    <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, padding: "5px 0", borderBottom: i < dashboardStats.bestSelling.length - 1 ? `1px solid ${T.hairline}` : "none" }}>
+                      <span>{b.name}</span>
+                      <span style={{ fontWeight: 700, color: T.orange }}>{b.qty} વેચાયા</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* ---- 2. Low Stock Alert ---- */}
+              <div style={styles.adminSectionTitle}>⚠️ ઓછો સ્ટોક ({lowStockProducts.length})</div>
+              {lowStockProducts.length === 0 && (
+                <p style={{ color: "#a49c88", fontSize: 12.5, marginBottom: 16 }}>
+                  કોઈ પ્રોડક્ટમાં ઓછો સ્ટોક નથી. (સ્ટોક નંબર સેટ કરવા નીચે પ્રોડક્ટ લિસ્ટમાં "સ્ટોક" પર ટેપ કરો.)
+                </p>
+              )}
+              {lowStockProducts.map((p) => (
+                <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#fff", border: `1px solid ${T.hairline}`, borderRadius: 10, padding: "8px 12px", marginBottom: 8 }}>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: T.ink }}>{p.name}</div>
+                    <div style={{ fontSize: 10.5, color: "#b23b3b", fontWeight: 700 }}>{p.stock === 0 ? "0 બાકી" : `ફક્ત ${p.stock} બાકી`}</div>
+                  </div>
+                  <span style={{ background: "#fde3e3", color: "#b23b3b", fontSize: 9.5, fontWeight: 800, padding: "3px 8px", borderRadius: 6 }}>
+                    {p.stock === 0 ? "OUT" : "LOW"}
+                  </span>
+                </div>
+              ))}
+              <div style={{ height: 10 }} />
+
+              {/* ---- 3. Bulk Price Update ---- */}
+              <div style={styles.adminSectionTitle}>💰 બલ્ક ભાવ અપડેટ ({bulkSelectedIds.size} પસંદ કરેલા)</div>
+              <div style={{ maxHeight: 220, overflowY: "auto", marginBottom: 8, border: `1px solid ${T.hairline}`, borderRadius: 10, background: "#fff" }}>
+                {products.slice(0, 100).map((p) => (
+                  <label
+                    key={p.id}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 8, padding: "8px 10px",
+                      borderBottom: `1px solid ${T.hairline}`, fontSize: 11.5, cursor: "pointer",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={bulkSelectedIds.has(p.id)}
+                      onChange={() => toggleBulkSelect(p.id)}
+                      style={{ width: 14, height: 14, flexShrink: 0 }}
+                    />
+                    <span style={{ flex: 1, fontWeight: 700, color: T.ink }}>{p.name}</span>
+                    <span style={{ color: T.inkSoft }}>{formatRs(p.price)}</span>
+                  </label>
+                ))}
+              </div>
+              <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+                <input
+                  type="text"
+                  value={bulkAdjustValue}
+                  onChange={(e) => setBulkAdjustValue(e.target.value)}
+                  placeholder="દા.ત. +10% અથવા -20 (₹)"
+                  style={{ flex: 1, fontSize: 12, padding: "8px 10px", border: `1px solid ${T.hairline}`, borderRadius: 8, background: T.surface2, color: T.ink }}
+                />
+                <button
+                  onClick={applyBulkPriceAdjust}
+                  disabled={bulkApplying || bulkSelectedIds.size === 0 || !bulkAdjustValue.trim()}
+                  style={{ background: T.orange, color: "#fff", fontWeight: 700, fontSize: 12, padding: "8px 16px", borderRadius: 8, border: "none" }}
+                >
+                  {bulkApplying ? "..." : "Apply"}
+                </button>
+              </div>
+
+              {/* ---- 4. Customer List ---- */}
+              <div style={styles.adminSectionTitle}>👥 ગ્રાહકો ({customerList.length})</div>
+              {customerList.length === 0 && <p style={{ color: "#a49c88", fontSize: 12.5, marginBottom: 16 }}>હજુ કોઈ ઓર્ડર નથી.</p>}
+              {customerList.map((c) => (
+                <div key={c.phone} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#fff", border: `1px solid ${T.hairline}`, borderRadius: 10, padding: "8px 12px", marginBottom: 8 }}>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: T.ink }}>{c.name}</div>
+                    <div style={{ fontSize: 10.5, color: T.inkSoft }}>{c.orderCount} ઓર્ડર્સ • {formatRs(c.totalSpent)} કુલ</div>
+                  </div>
+                  <a href={`tel:${c.phone}`} style={{ background: T.greenLight, color: T.green, fontSize: 10.5, fontWeight: 800, padding: "5px 10px", borderRadius: 8, textDecoration: "none" }}>
+                    📞 Call
+                  </a>
+                </div>
+              ))}
+              <div style={{ height: 10 }} />
+
             </div>
           </div>
         )}
