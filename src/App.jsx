@@ -1676,6 +1676,48 @@ function groupOrdersByDate(orders) {
 export default function ApniDukanApp() {
   const [products, setProducts] = useState([]);
   const [orders, setOrders] = useState([]);
+
+  // ---- admin dashboard stats, computed purely from existing orders data ----
+  const dashboardStats = useMemo(() => {
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const startOfWeek = startOfDay - (now.getDay() * 86400000);
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+
+    let today = 0, week = 0, month = 0;
+    const productSales = {};
+    orders.forEach((o) => {
+      const t = o.createdAt || 0;
+      const amt = o.total || 0;
+      if (t >= startOfDay) today += amt;
+      if (t >= startOfWeek) week += amt;
+      if (t >= startOfMonth) month += amt;
+      (o.items || []).forEach((it) => {
+        productSales[it.name] = (productSales[it.name] || 0) + (it.qty || 0);
+      });
+    });
+    const bestSelling = Object.entries(productSales)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([name, qty]) => ({ name, qty }));
+
+    return { today, week, month, totalOrders: orders.length, bestSelling };
+  }, [orders]);
+
+  // ---- customer list, grouped by phone number from past orders ----
+  const customerList = useMemo(() => {
+    const byPhone = {};
+    orders.forEach((o) => {
+      const phone = o.customer?.phone;
+      if (!phone) return;
+      if (!byPhone[phone]) {
+        byPhone[phone] = { phone, name: o.customer?.name || "ગ્રાહક", orderCount: 0, totalSpent: 0 };
+      }
+      byPhone[phone].orderCount += 1;
+      byPhone[phone].totalSpent += o.total || 0;
+    });
+    return Object.values(byPhone).sort((a, b) => b.totalSpent - a.totalSpent);
+  }, [orders]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState("");
@@ -1740,6 +1782,58 @@ export default function ApniDukanApp() {
   const [pinError, setPinError] = useState("");
   const [newProduct, setNewProduct] = useState({ name: "", category: "કપડાં", price: "", img: "🛍️", image: "", stock: "" });
   const [editingProductId, setEditingProductId] = useState(null);
+  // ---- low stock: products where a "stock" number has been set and is running low ----
+  const lowStockProducts = useMemo(() => {
+    return products.filter((p) => typeof p.stock === "number" && p.stock <= 5);
+  }, [products]);
+
+  const [stockEditId, setStockEditId] = useState(null);
+  const [stockEditValue, setStockEditValue] = useState("");
+  async function saveStock(p) {
+    const val = parseInt(stockEditValue, 10);
+    if (isNaN(val) || val < 0) return;
+    await productSave({ ...p, stock: val });
+    setStockEditId(null);
+    setStockEditValue("");
+  }
+  const [bulkSelectedIds, setBulkSelectedIds] = useState(() => new Set());
+  const [bulkAdjustValue, setBulkAdjustValue] = useState("");
+  const [bulkApplying, setBulkApplying] = useState(false);
+
+  function toggleBulkSelect(id) {
+    setBulkSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function applyBulkPriceAdjust() {
+    const raw = bulkAdjustValue.trim();
+    if (!raw || bulkSelectedIds.size === 0) return;
+    setBulkApplying(true);
+    try {
+      const isPercent = raw.endsWith("%");
+      const num = parseFloat(raw.replace("%", "").replace("+", ""));
+      if (isNaN(num)) return;
+      const toUpdate = products
+        .filter((p) => bulkSelectedIds.has(p.id))
+        .map((p) => {
+          const newPrice = isPercent ? p.price * (1 + num / 100) : p.price + num;
+          return { ...p, price: Math.max(0, Math.round(newPrice)) };
+        });
+      await productsBulkSave(toUpdate);
+      setBulkSelectedIds(new Set());
+      setBulkAdjustValue("");
+      alert(`${toUpdate.length} પ્રોડક્ટ્સ ના ભાવ અપડેટ થયા!`);
+    } catch (err) {
+      console.error(err);
+      alert("અપડેટ કરવામાં તકલીફ થઈ.");
+    } finally {
+      setBulkApplying(false);
+    }
+  }
   const [customCategories, setCustomCategories] = useState([]);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [showProductList, setShowProductList] = useState(false);
@@ -3019,6 +3113,114 @@ export default function ApniDukanApp() {
               <button style={{ ...styles.primaryBtn, marginTop: 0, marginBottom: 16, background: T.green }} onClick={refreshWasherPhotos} disabled={saving}>
                 {saving ? "અપડેટ થાય છે..." : "🪛 વોશર ફોટો અપડેટ કરો"}
               </button>
+
+              {/* ---- 1. Sales Dashboard ---- */}
+              <div style={styles.adminSectionTitle}>📊 વેચાણ ડેશબોર્ડ</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 14 }}>
+                <div style={{ background: "#fff", border: `1px solid ${T.hairline}`, borderRadius: 10, padding: 10 }}>
+                  <div style={{ fontSize: 10.5, color: T.inkSoft, fontWeight: 700 }}>આજનું વેચાણ</div>
+                  <div style={{ fontSize: 17, fontWeight: 800, color: T.ink, marginTop: 2 }}>{formatRs(dashboardStats.today)}</div>
+                </div>
+                <div style={{ background: "#fff", border: `1px solid ${T.hairline}`, borderRadius: 10, padding: 10 }}>
+                  <div style={{ fontSize: 10.5, color: T.inkSoft, fontWeight: 700 }}>આ અઠવાડિયે</div>
+                  <div style={{ fontSize: 17, fontWeight: 800, color: T.ink, marginTop: 2 }}>{formatRs(dashboardStats.week)}</div>
+                </div>
+                <div style={{ background: "#fff", border: `1px solid ${T.hairline}`, borderRadius: 10, padding: 10 }}>
+                  <div style={{ fontSize: 10.5, color: T.inkSoft, fontWeight: 700 }}>આ મહિને</div>
+                  <div style={{ fontSize: 17, fontWeight: 800, color: T.green, marginTop: 2 }}>{formatRs(dashboardStats.month)}</div>
+                </div>
+                <div style={{ background: "#fff", border: `1px solid ${T.hairline}`, borderRadius: 10, padding: 10 }}>
+                  <div style={{ fontSize: 10.5, color: T.inkSoft, fontWeight: 700 }}>કુલ ઓર્ડર્સ</div>
+                  <div style={{ fontSize: 17, fontWeight: 800, color: T.ink, marginTop: 2 }}>{dashboardStats.totalOrders}</div>
+                </div>
+              </div>
+              {dashboardStats.bestSelling.length > 0 && (
+                <div style={{ background: "#fff", border: `1px solid ${T.hairline}`, borderRadius: 10, padding: 10, marginBottom: 20 }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: T.ink, marginBottom: 6 }}>🏆 સૌથી વધુ વેચાયેલા</div>
+                  {dashboardStats.bestSelling.map((b, i) => (
+                    <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, padding: "5px 0", borderBottom: i < dashboardStats.bestSelling.length - 1 ? `1px solid ${T.hairline}` : "none" }}>
+                      <span>{b.name}</span>
+                      <span style={{ fontWeight: 700, color: T.orange }}>{b.qty} વેચાયા</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* ---- 2. Low Stock Alert ---- */}
+              <div style={styles.adminSectionTitle}>⚠️ ઓછો સ્ટોક ({lowStockProducts.length})</div>
+              {lowStockProducts.length === 0 && (
+                <p style={{ color: "#a49c88", fontSize: 12.5, marginBottom: 16 }}>
+                  કોઈ પ્રોડક્ટમાં ઓછો સ્ટોક નથી. (સ્ટોક નંબર સેટ કરવા નીચે પ્રોડક્ટ લિસ્ટમાં "સ્ટોક" પર ટેપ કરો.)
+                </p>
+              )}
+              {lowStockProducts.map((p) => (
+                <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#fff", border: `1px solid ${T.hairline}`, borderRadius: 10, padding: "8px 12px", marginBottom: 8 }}>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: T.ink }}>{p.name}</div>
+                    <div style={{ fontSize: 10.5, color: "#b23b3b", fontWeight: 700 }}>{p.stock === 0 ? "0 બાકી" : `ફક્ત ${p.stock} બાકી`}</div>
+                  </div>
+                  <span style={{ background: "#fde3e3", color: "#b23b3b", fontSize: 9.5, fontWeight: 800, padding: "3px 8px", borderRadius: 6 }}>
+                    {p.stock === 0 ? "OUT" : "LOW"}
+                  </span>
+                </div>
+              ))}
+              <div style={{ height: 10 }} />
+
+              {/* ---- 3. Bulk Price Update ---- */}
+              <div style={styles.adminSectionTitle}>💰 બલ્ક ભાવ અપડેટ ({bulkSelectedIds.size} પસંદ કરેલા)</div>
+              <div style={{ maxHeight: 220, overflowY: "auto", marginBottom: 8, border: `1px solid ${T.hairline}`, borderRadius: 10, background: "#fff" }}>
+                {products.slice(0, 100).map((p) => (
+                  <label
+                    key={p.id}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 8, padding: "8px 10px",
+                      borderBottom: `1px solid ${T.hairline}`, fontSize: 11.5, cursor: "pointer",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={bulkSelectedIds.has(p.id)}
+                      onChange={() => toggleBulkSelect(p.id)}
+                      style={{ width: 14, height: 14, flexShrink: 0 }}
+                    />
+                    <span style={{ flex: 1, fontWeight: 700, color: T.ink }}>{p.name}</span>
+                    <span style={{ color: T.inkSoft }}>{formatRs(p.price)}</span>
+                  </label>
+                ))}
+              </div>
+              <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+                <input
+                  type="text"
+                  value={bulkAdjustValue}
+                  onChange={(e) => setBulkAdjustValue(e.target.value)}
+                  placeholder="દા.ત. +10% અથવા -20 (₹)"
+                  style={{ flex: 1, fontSize: 12, padding: "8px 10px", border: `1px solid ${T.hairline}`, borderRadius: 8, background: T.surface2, color: T.ink }}
+                />
+                <button
+                  onClick={applyBulkPriceAdjust}
+                  disabled={bulkApplying || bulkSelectedIds.size === 0 || !bulkAdjustValue.trim()}
+                  style={{ background: T.orange, color: "#fff", fontWeight: 700, fontSize: 12, padding: "8px 16px", borderRadius: 8, border: "none" }}
+                >
+                  {bulkApplying ? "..." : "Apply"}
+                </button>
+              </div>
+
+              {/* ---- 4. Customer List ---- */}
+              <div style={styles.adminSectionTitle}>👥 ગ્રાહકો ({customerList.length})</div>
+              {customerList.length === 0 && <p style={{ color: "#a49c88", fontSize: 12.5, marginBottom: 16 }}>હજુ કોઈ ઓર્ડર નથી.</p>}
+              {customerList.map((c) => (
+                <div key={c.phone} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#fff", border: `1px solid ${T.hairline}`, borderRadius: 10, padding: "8px 12px", marginBottom: 8 }}>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: T.ink }}>{c.name}</div>
+                    <div style={{ fontSize: 10.5, color: T.inkSoft }}>{c.orderCount} ઓર્ડર્સ • {formatRs(c.totalSpent)} કુલ</div>
+                  </div>
+                  <a href={`tel:${c.phone}`} style={{ background: T.greenLight, color: T.green, fontSize: 10.5, fontWeight: 800, padding: "5px 10px", borderRadius: 8, textDecoration: "none" }}>
+                    📞 Call
+                  </a>
+                </div>
+              ))}
+              <div style={{ height: 10 }} />
+
 
               <div style={styles.adminSectionTitle}>
                 <MessageSquare size={16} /> નવી પૂછપરછ ({enquiries.length})
