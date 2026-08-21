@@ -3288,20 +3288,7 @@ export default function ApniDukanApp() {
                 </div>
               ))}
 
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                <div style={{ ...styles.adminSectionTitle, marginBottom: 0 }}><ClipboardList size={16} /> ઓર્ડર્સ ({orders.length})</div>
-                {orders.length > 0 && (
-                  <button
-                    onClick={async () => {
-                      if (!window.confirm(`બધા ${orders.length} ઓર્ડર્સ ડિલીટ કરવા છે? (ટેસ્ટ ઓર્ડર્સ સાફ કરવા માટે)`)) return;
-                      await storageSet("orders", JSON.stringify([]));
-                    }}
-                    style={{ background: "#fde3e3", color: "#b23b3b", fontSize: 10.5, fontWeight: 800, padding: "5px 10px", borderRadius: 8, border: "none" }}
-                  >
-                    🗑️ બધા ઓર્ડર્સ સાફ કરો
-                  </button>
-                )}
-              </div>
+              <div style={styles.adminSectionTitle}><ClipboardList size={16} /> ઓર્ડર્સ ({orders.length})</div>
               {orders.length === 0 && <p style={{ color: "#a49c88", fontSize: 13 }}>હજુ કોઈ ઓર્ડર નથી.</p>}
               {groupOrdersByDate(orders).map((group, groupIdx) => {
                 const defaultOpen = groupIdx === 0;
