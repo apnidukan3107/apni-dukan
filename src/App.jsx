@@ -8,7 +8,6 @@ import { initializeApp } from "firebase/app";
 import { getFirestore, doc, getDoc, setDoc, deleteDoc, onSnapshot, collection, getDocs, writeBatch } from "firebase/firestore";
 import { getMessaging, getToken, isSupported as isMessagingSupported } from "firebase/messaging";
 import { getAnalytics } from "firebase/analytics";
-import { getAuth, RecaptchaVerifier, signInWithPhoneNumber } from "firebase/auth";
 
 const firebaseConfig = {
   apiKey: "AIzaSyC9oJrhtVRE91_fF8FHEWXbcBJnY-916Zc",
@@ -23,7 +22,6 @@ const firebaseConfig = {
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp);
 const analytics = getAnalytics(firebaseApp);
-const auth = getAuth(firebaseApp);
 
 // ---- Push notifications (Firebase Cloud Messaging) ----
 // Public VAPID key from Firebase Console → Project settings → Cloud
@@ -2210,73 +2208,6 @@ export default function ApniDukanApp() {
   }
 
   const [checkoutForm, setCheckoutForm] = useState({ name: "", phone: "", address: "" });
-
-  // ---- Phone OTP verification (Firebase Phone Auth) ----
-  // otpStatus: "idle" (not sent) | "sending" | "sent" (waiting for code) | "verified"
-  const [otpStatus, setOtpStatus] = useState("idle");
-  const [otpCode, setOtpCode] = useState("");
-  const [otpError, setOtpError] = useState("");
-  const confirmationResultRef = useRef(null);
-  const recaptchaVerifierRef = useRef(null);
-
-  function getRecaptchaVerifier() {
-    if (!recaptchaVerifierRef.current) {
-      recaptchaVerifierRef.current = new RecaptchaVerifier(auth, "recaptcha-container", {
-        size: "invisible",
-      });
-    }
-    return recaptchaVerifierRef.current;
-  }
-
-  async function sendOtp() {
-    setOtpError("");
-    const phone = checkoutForm.phone.trim();
-    if (!/^[6-9]\d{9}$/.test(phone)) {
-      setOtpError("કૃપા કરીને સાચો 10-અંકનો ફોન નંબર નાખો.");
-      return;
-    }
-    setOtpStatus("sending");
-    try {
-      const verifier = getRecaptchaVerifier();
-      const result = await signInWithPhoneNumber(auth, "+91" + phone, verifier);
-      confirmationResultRef.current = result;
-      setOtpStatus("sent");
-    } catch (err) {
-      console.error("OTP send failed:", err);
-      setOtpError("OTP મોકલવામાં તકલીફ થઈ. ફરી પ્રયત્ન કરો.");
-      setOtpStatus("idle");
-      try {
-        recaptchaVerifierRef.current?.clear();
-        recaptchaVerifierRef.current = null;
-      } catch {}
-    }
-  }
-
-  async function verifyOtp() {
-    setOtpError("");
-    if (!confirmationResultRef.current || otpCode.trim().length !== 6) {
-      setOtpError("કૃપા કરીને 6-અંકનો OTP નાખો.");
-      return;
-    }
-    try {
-      await confirmationResultRef.current.confirm(otpCode.trim());
-      setOtpStatus("verified");
-    } catch (err) {
-      console.error("OTP verify failed:", err);
-      setOtpError("ખોટો OTP. ફરી પ્રયત્ન કરો.");
-    }
-  }
-
-  function resetOtp() {
-    setOtpStatus("idle");
-    setOtpCode("");
-    setOtpError("");
-    confirmationResultRef.current = null;
-    try {
-      recaptchaVerifierRef.current?.clear();
-      recaptchaVerifierRef.current = null;
-    } catch {}
-  }
   const [checkoutError, setCheckoutError] = useState("");
   // "no-bill" = direct order, no GST. "with-bill" = proper GST bill, 18% added.
   const [billOption, setBillOption] = useState("no-bill");
@@ -2288,10 +2219,6 @@ export default function ApniDukanApp() {
   async function placeOrder() {
     if (!checkoutForm.name.trim() || !checkoutForm.phone.trim() || !checkoutForm.address.trim()) {
       setCheckoutError("કૃપા કરીને બધી વિગત ભરો.");
-      return;
-    }
-    if (otpStatus !== "verified") {
-      setCheckoutError("કૃપા કરીને પહેલા ફોન નંબર OTP થી વેરિફાય કરો.");
       return;
     }
     if (billOption === "with-bill" && !gstNumber.trim()) {
@@ -2333,7 +2260,6 @@ export default function ApniDukanApp() {
       setCheckoutForm({ name: "", phone: "", address: "" });
       setBillOption("no-bill");
       setGstNumber("");
-      resetOtp();
       // Fire the real push notification via the Vercel API route — this
       // works even if the admin's phone screen is off / app is closed,
       // unlike the browser Notification API which only fires while a tab
@@ -2381,7 +2307,6 @@ export default function ApniDukanApp() {
       setView("success");
       setCheckoutForm({ name: "", phone: "", address: "" });
       setLoadError("ઓર્ડર થઈ ગયો, પણ સર્વર સાથે સેવ ના થયું: " + (e && e.message ? e.message : "અજાણી ભૂલ"));
-      resetOtp();
     } finally {
       setSaving(false);
     }
@@ -3140,62 +3065,9 @@ export default function ApniDukanApp() {
               <input
                 style={styles.textInput}
                 value={checkoutForm.phone}
-                onChange={(e) => {
-                  setCheckoutForm((f) => ({ ...f, phone: e.target.value.replace(/[^0-9]/g, "").slice(0, 10) }));
-                  if (otpStatus !== "idle") resetOtp();
-                }}
+                onChange={(e) => setCheckoutForm((f) => ({ ...f, phone: e.target.value.replace(/[^0-9]/g, "").slice(0, 10) }))}
                 placeholder="9XXXXXXXXX"
               />
-
-              {/* Invisible reCAPTCHA container required by Firebase Phone Auth */}
-              <div id="recaptcha-container"></div>
-
-              {otpStatus === "verified" ? (
-                <div style={{ background: T.greenLight, color: T.green, fontSize: 12.5, fontWeight: 700, padding: "8px 12px", borderRadius: 10, marginBottom: 14 }}>
-                  ✓ ફોન નંબર વેરિફાય થયો
-                </div>
-              ) : otpStatus === "sent" ? (
-                <div style={{ marginBottom: 14 }}>
-                  <label style={styles.label}>OTP નાખો</label>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <input
-                      style={{ ...styles.textInput, flex: 1, letterSpacing: 4, textAlign: "center" }}
-                      value={otpCode}
-                      onChange={(e) => setOtpCode(e.target.value.replace(/[^0-9]/g, "").slice(0, 6))}
-                      placeholder="000000"
-                      inputMode="numeric"
-                    />
-                    <button
-                      onClick={verifyOtp}
-                      style={{ background: T.orange, color: "#fff", fontWeight: 800, fontSize: 12.5, padding: "0 16px", borderRadius: 10, border: "none" }}
-                    >
-                      તપાસો
-                    </button>
-                  </div>
-                  <button
-                    onClick={sendOtp}
-                    style={{ background: "none", border: "none", color: T.inkSoft, fontSize: 11.5, textDecoration: "underline", marginTop: 6, cursor: "pointer" }}
-                  >
-                    OTP ફરી મોકલો
-                  </button>
-                  {otpError && <div style={{ color: "#b23b3b", fontSize: 12, marginTop: 4 }}>{otpError}</div>}
-                </div>
-              ) : (
-                <div style={{ marginBottom: 14 }}>
-                  <button
-                    onClick={sendOtp}
-                    disabled={otpStatus === "sending" || !/^[6-9]\d{9}$/.test(checkoutForm.phone.trim())}
-                    style={{
-                      background: /^[6-9]\d{9}$/.test(checkoutForm.phone.trim()) ? T.green : T.hairline,
-                      color: "#fff", fontWeight: 800, fontSize: 12.5, padding: "9px 16px", borderRadius: 10, border: "none",
-                    }}
-                  >
-                    {otpStatus === "sending" ? "OTP મોકલાય છે..." : "📩 OTP મોકલો (ફોન વેરિફાય કરો)"}
-                  </button>
-                  {otpError && <div style={{ color: "#b23b3b", fontSize: 12, marginTop: 4 }}>{otpError}</div>}
-                </div>
-              )}
-
               <label style={styles.label}>ડિલિવરી સરનામું</label>
               <textarea
                 style={{ ...styles.textInput, height: 70 }}
@@ -3220,7 +3092,7 @@ export default function ApniDukanApp() {
                   <span>કુલ ચૂકવવાનું (ડિલિવરી વખતે)</span>
                   <span>{formatRs(grandTotal)}</span>
                 </div>
-                <button style={styles.primaryBtn} onClick={placeOrder} disabled={saving || otpStatus !== "verified"}>
+                <button style={styles.primaryBtn} onClick={placeOrder} disabled={saving}>
                   {saving ? "સેવ થાય છે..." : "ઓર્ડર કન્ફર્મ કરો"}
                 </button>
               </div>
