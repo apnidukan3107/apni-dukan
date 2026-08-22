@@ -8,6 +8,7 @@ import { initializeApp } from "firebase/app";
 import { getFirestore, doc, getDoc, setDoc, deleteDoc, onSnapshot, collection, getDocs, writeBatch } from "firebase/firestore";
 import { getMessaging, getToken, isSupported as isMessagingSupported } from "firebase/messaging";
 import { getAnalytics } from "firebase/analytics";
+import { getAuth, RecaptchaVerifier, signInWithPhoneNumber } from "firebase/auth";
 
 const firebaseConfig = {
   apiKey: "AIzaSyC9oJrhtVRE91_fF8FHEWXbcBJnY-916Zc",
@@ -22,6 +23,7 @@ const firebaseConfig = {
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp);
 const analytics = getAnalytics(firebaseApp);
+const auth = getAuth(firebaseApp);
 
 // ---- Push notifications (Firebase Cloud Messaging) ----
 // Public VAPID key from Firebase Console → Project settings → Cloud
@@ -1687,7 +1689,7 @@ export default function ApniDukanApp() {
     let today = 0, week = 0, month = 0;
     const productSales = {};
     orders.forEach((o) => {
-      const t = o.createdAt || 0;
+      const t = o.createdAt ? new Date(o.createdAt).getTime() : 0;
       const amt = o.total || 0;
       if (t >= startOfDay) today += amt;
       if (t >= startOfWeek) week += amt;
@@ -1773,6 +1775,40 @@ export default function ApniDukanApp() {
   };
 
   const [cart, setCart] = useState({});
+  const [wishlist, setWishlist] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("apniDukanWishlist") || "[]");
+    } catch {
+      return [];
+    }
+  });
+  function toggleWishlist(id) {
+    setWishlist((prev) => {
+      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+      try {
+        localStorage.setItem("apniDukanWishlist", JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  }
+  const [myPhone, setMyPhone] = useState(() => {
+    try {
+      return localStorage.getItem("apniDukanMyPhone") || "";
+    } catch {
+      return "";
+    }
+  });
+  const [myPhoneInput, setMyPhoneInput] = useState("");
+  function repeatOrder(order) {
+    setCart((prev) => {
+      const next = { ...prev };
+      (order.items || []).forEach((it) => {
+        next[it.id] = (next[it.id] || 0) + (it.qty || 1);
+      });
+      return next;
+    });
+    setView("cart");
+  }
   const [view, setView] = useState("home");
   const [lastOrderId, setLastOrderId] = useState("");
 
@@ -2174,6 +2210,73 @@ export default function ApniDukanApp() {
   }
 
   const [checkoutForm, setCheckoutForm] = useState({ name: "", phone: "", address: "" });
+
+  // ---- Phone OTP verification (Firebase Phone Auth) ----
+  // otpStatus: "idle" (not sent) | "sending" | "sent" (waiting for code) | "verified"
+  const [otpStatus, setOtpStatus] = useState("idle");
+  const [otpCode, setOtpCode] = useState("");
+  const [otpError, setOtpError] = useState("");
+  const confirmationResultRef = useRef(null);
+  const recaptchaVerifierRef = useRef(null);
+
+  function getRecaptchaVerifier() {
+    if (!recaptchaVerifierRef.current) {
+      recaptchaVerifierRef.current = new RecaptchaVerifier(auth, "recaptcha-container", {
+        size: "invisible",
+      });
+    }
+    return recaptchaVerifierRef.current;
+  }
+
+  async function sendOtp() {
+    setOtpError("");
+    const phone = checkoutForm.phone.trim();
+    if (!/^[6-9]\d{9}$/.test(phone)) {
+      setOtpError("કૃપા કરીને સાચો 10-અંકનો ફોન નંબર નાખો.");
+      return;
+    }
+    setOtpStatus("sending");
+    try {
+      const verifier = getRecaptchaVerifier();
+      const result = await signInWithPhoneNumber(auth, "+91" + phone, verifier);
+      confirmationResultRef.current = result;
+      setOtpStatus("sent");
+    } catch (err) {
+      console.error("OTP send failed:", err);
+      setOtpError("OTP મોકલવામાં તકલીફ થઈ. ફરી પ્રયત્ન કરો.");
+      setOtpStatus("idle");
+      try {
+        recaptchaVerifierRef.current?.clear();
+        recaptchaVerifierRef.current = null;
+      } catch {}
+    }
+  }
+
+  async function verifyOtp() {
+    setOtpError("");
+    if (!confirmationResultRef.current || otpCode.trim().length !== 6) {
+      setOtpError("કૃપા કરીને 6-અંકનો OTP નાખો.");
+      return;
+    }
+    try {
+      await confirmationResultRef.current.confirm(otpCode.trim());
+      setOtpStatus("verified");
+    } catch (err) {
+      console.error("OTP verify failed:", err);
+      setOtpError("ખોટો OTP. ફરી પ્રયત્ન કરો.");
+    }
+  }
+
+  function resetOtp() {
+    setOtpStatus("idle");
+    setOtpCode("");
+    setOtpError("");
+    confirmationResultRef.current = null;
+    try {
+      recaptchaVerifierRef.current?.clear();
+      recaptchaVerifierRef.current = null;
+    } catch {}
+  }
   const [checkoutError, setCheckoutError] = useState("");
   // "no-bill" = direct order, no GST. "with-bill" = proper GST bill, 18% added.
   const [billOption, setBillOption] = useState("no-bill");
@@ -2185,6 +2288,10 @@ export default function ApniDukanApp() {
   async function placeOrder() {
     if (!checkoutForm.name.trim() || !checkoutForm.phone.trim() || !checkoutForm.address.trim()) {
       setCheckoutError("કૃપા કરીને બધી વિગત ભરો.");
+      return;
+    }
+    if (otpStatus !== "verified") {
+      setCheckoutError("કૃપા કરીને પહેલા ફોન નંબર OTP થી વેરિફાય કરો.");
       return;
     }
     if (billOption === "with-bill" && !gstNumber.trim()) {
@@ -2208,6 +2315,10 @@ export default function ApniDukanApp() {
       createdAt: new Date().toISOString(),
     };
     try {
+      localStorage.setItem("apniDukanMyPhone", checkoutForm.phone.trim());
+      setMyPhone(checkoutForm.phone.trim());
+    } catch {}
+    try {
       let freshOrders = orders;
       try {
         const freshRes = await storageGet("orders");
@@ -2222,6 +2333,7 @@ export default function ApniDukanApp() {
       setCheckoutForm({ name: "", phone: "", address: "" });
       setBillOption("no-bill");
       setGstNumber("");
+      resetOtp();
       // Fire the real push notification via the Vercel API route — this
       // works even if the admin's phone screen is off / app is closed,
       // unlike the browser Notification API which only fires while a tab
@@ -2269,6 +2381,7 @@ export default function ApniDukanApp() {
       setView("success");
       setCheckoutForm({ name: "", phone: "", address: "" });
       setLoadError("ઓર્ડર થઈ ગયો, પણ સર્વર સાથે સેવ ના થયું: " + (e && e.message ? e.message : "અજાણી ભૂલ"));
+      resetOtp();
     } finally {
       setSaving(false);
     }
@@ -2571,6 +2684,12 @@ export default function ApniDukanApp() {
             )}
             {view === "home" && (
               <div style={{ display: "flex", gap: 8 }}>
+                <button style={styles.iconBtn} onClick={() => setView("myOrders")} aria-label="મારા ઓર્ડર્સ">
+                  <ClipboardList size={18} color={T.ink} />
+                </button>
+                <button style={styles.iconBtn} onClick={() => setView("wishlist")} aria-label="મારી પસંદ">
+                  <span style={{ fontSize: 16 }}>{wishlist.length > 0 ? "❤️" : "🤍"}</span>
+                </button>
                 <button style={styles.iconBtn} onClick={() => setView(isAdmin ? "admin" : "adminLogin")} aria-label="એડમિન">
                   <Settings size={18} color={T.ink} />
                 </button>
@@ -2773,6 +2892,18 @@ export default function ApniDukanApp() {
                         {Math.round((1 - p.price / p.mrp) * 100)}% OFF
                       </span>
                     ) : null}
+                    <button
+                      onClick={() => toggleWishlist(p.id)}
+                      aria-label="wishlist"
+                      style={{
+                        position: "absolute", top: 6, right: 6, width: 26, height: 26,
+                        borderRadius: 99, background: "rgba(255,255,255,0.9)", border: "none",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        fontSize: 14, cursor: "pointer",
+                      }}
+                    >
+                      {wishlist.includes(p.id) ? "❤️" : "🤍"}
+                    </button>
                   </div>
                   <div style={styles.cardBody}>
                     <div style={styles.cardCat}>{p.category}</div>
@@ -3009,9 +3140,62 @@ export default function ApniDukanApp() {
               <input
                 style={styles.textInput}
                 value={checkoutForm.phone}
-                onChange={(e) => setCheckoutForm((f) => ({ ...f, phone: e.target.value }))}
+                onChange={(e) => {
+                  setCheckoutForm((f) => ({ ...f, phone: e.target.value.replace(/[^0-9]/g, "").slice(0, 10) }));
+                  if (otpStatus !== "idle") resetOtp();
+                }}
                 placeholder="9XXXXXXXXX"
               />
+
+              {/* Invisible reCAPTCHA container required by Firebase Phone Auth */}
+              <div id="recaptcha-container"></div>
+
+              {otpStatus === "verified" ? (
+                <div style={{ background: T.greenLight, color: T.green, fontSize: 12.5, fontWeight: 700, padding: "8px 12px", borderRadius: 10, marginBottom: 14 }}>
+                  ✓ ફોન નંબર વેરિફાય થયો
+                </div>
+              ) : otpStatus === "sent" ? (
+                <div style={{ marginBottom: 14 }}>
+                  <label style={styles.label}>OTP નાખો</label>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <input
+                      style={{ ...styles.textInput, flex: 1, letterSpacing: 4, textAlign: "center" }}
+                      value={otpCode}
+                      onChange={(e) => setOtpCode(e.target.value.replace(/[^0-9]/g, "").slice(0, 6))}
+                      placeholder="000000"
+                      inputMode="numeric"
+                    />
+                    <button
+                      onClick={verifyOtp}
+                      style={{ background: T.orange, color: "#fff", fontWeight: 800, fontSize: 12.5, padding: "0 16px", borderRadius: 10, border: "none" }}
+                    >
+                      તપાસો
+                    </button>
+                  </div>
+                  <button
+                    onClick={sendOtp}
+                    style={{ background: "none", border: "none", color: T.inkSoft, fontSize: 11.5, textDecoration: "underline", marginTop: 6, cursor: "pointer" }}
+                  >
+                    OTP ફરી મોકલો
+                  </button>
+                  {otpError && <div style={{ color: "#b23b3b", fontSize: 12, marginTop: 4 }}>{otpError}</div>}
+                </div>
+              ) : (
+                <div style={{ marginBottom: 14 }}>
+                  <button
+                    onClick={sendOtp}
+                    disabled={otpStatus === "sending" || !/^[6-9]\d{9}$/.test(checkoutForm.phone.trim())}
+                    style={{
+                      background: /^[6-9]\d{9}$/.test(checkoutForm.phone.trim()) ? T.green : T.hairline,
+                      color: "#fff", fontWeight: 800, fontSize: 12.5, padding: "9px 16px", borderRadius: 10, border: "none",
+                    }}
+                  >
+                    {otpStatus === "sending" ? "OTP મોકલાય છે..." : "📩 OTP મોકલો (ફોન વેરિફાય કરો)"}
+                  </button>
+                  {otpError && <div style={{ color: "#b23b3b", fontSize: 12, marginTop: 4 }}>{otpError}</div>}
+                </div>
+              )}
+
               <label style={styles.label}>ડિલિવરી સરનામું</label>
               <textarea
                 style={{ ...styles.textInput, height: 70 }}
@@ -3036,7 +3220,7 @@ export default function ApniDukanApp() {
                   <span>કુલ ચૂકવવાનું (ડિલિવરી વખતે)</span>
                   <span>{formatRs(grandTotal)}</span>
                 </div>
-                <button style={styles.primaryBtn} onClick={placeOrder} disabled={saving}>
+                <button style={styles.primaryBtn} onClick={placeOrder} disabled={saving || otpStatus !== "verified"}>
                   {saving ? "સેવ થાય છે..." : "ઓર્ડર કન્ફર્મ કરો"}
                 </button>
               </div>
@@ -3053,6 +3237,156 @@ export default function ApniDukanApp() {
               ઓર્ડર નંબર: {lastOrderId}<br />ડિલિવરી વખતે કેશ ચૂકવો.
             </p>
             <button style={styles.primaryBtn} onClick={() => setView("home")}>ખરીદી ચાલુ રાખો</button>
+          </div>
+        )}
+
+        {/* WISHLIST */}
+        {view === "wishlist" && (
+          <div style={{ padding: 16 }}>
+            <button
+              onClick={() => setView("home")}
+              style={{ background: "none", border: "none", display: "flex", alignItems: "center", gap: 6, color: T.inkSoft, fontSize: 13, fontWeight: 700, marginBottom: 14, cursor: "pointer" }}
+            >
+              <ArrowLeft size={16} /> પાછા
+            </button>
+            <div style={{ fontSize: 18, fontWeight: 800, color: T.ink, marginBottom: 14 }}>❤️ મારી પસંદ</div>
+            {wishlist.length === 0 ? (
+              <div style={{ textAlign: "center", color: T.inkSoft, fontSize: 13, marginTop: 40 }}>
+                હજુ કંઈ પસંદ કર્યું નથી. પ્રોડક્ટ પર 🤍 ટેપ કરો.
+              </div>
+            ) : (
+              <div style={styles.grid}>
+                {products.filter((p) => wishlist.includes(p.id)).map((p) => (
+                  <div key={p.id} style={styles.card}>
+                    <div style={styles.cardImgWrap}>
+                      {resolveProductImage(p) ? (
+                        <img src={resolveProductImage(p)} alt={p.name} style={styles.cardImg} />
+                      ) : (
+                        <span style={{ fontSize: 40 }}>{p.img}</span>
+                      )}
+                      <button
+                        onClick={() => toggleWishlist(p.id)}
+                        style={{
+                          position: "absolute", top: 6, right: 6, width: 26, height: 26,
+                          borderRadius: 99, background: "rgba(255,255,255,0.9)", border: "none",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          fontSize: 14, cursor: "pointer",
+                        }}
+                      >
+                        ❤️
+                      </button>
+                    </div>
+                    <div style={styles.cardBody}>
+                      <div style={styles.cardCat}>{p.category}</div>
+                      <div style={styles.cardName}>{p.name}</div>
+                      <div style={styles.cardBottomRow}>
+                        <div style={styles.cardPrice}>
+                          {formatRs(p.price)}{p.unit ? <span style={{ fontSize: 10, fontWeight: 600 }}> /{p.unit}</span> : null}
+                        </div>
+                        {!p.requiresSize && (
+                          <button style={styles.addBtn} onClick={() => addToCart(p.id)}>ઉમેરો</button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* MY ORDERS — tracking + repeat order */}
+        {view === "myOrders" && (
+          <div style={{ padding: 16 }}>
+            <button
+              onClick={() => setView("home")}
+              style={{ background: "none", border: "none", display: "flex", alignItems: "center", gap: 6, color: T.inkSoft, fontSize: 13, fontWeight: 700, marginBottom: 14, cursor: "pointer" }}
+            >
+              <ArrowLeft size={16} /> પાછા
+            </button>
+            <div style={{ fontSize: 18, fontWeight: 800, color: T.ink, marginBottom: 14 }}>📦 મારા ઓર્ડર્સ</div>
+
+            {!myPhone ? (
+              <div>
+                <div style={{ fontSize: 12.5, color: T.inkSoft, marginBottom: 10 }}>
+                  તમારો ઓર્ડર જોવા માટે એ જ ફોન નંબર નાખો જે ઓર્ડર વખતે આપ્યો હતો.
+                </div>
+                <input
+                  type="tel"
+                  value={myPhoneInput}
+                  onChange={(e) => setMyPhoneInput(e.target.value.replace(/[^0-9+ ]/g, ""))}
+                  placeholder="9XXXXXXXXX"
+                  style={{ width: "100%", boxSizing: "border-box", padding: "12px 14px", border: `1px solid ${T.hairline}`, borderRadius: 12, background: T.surface2, color: T.ink, fontSize: 14.5, marginBottom: 10 }}
+                />
+                <button
+                  style={styles.primaryBtn}
+                  onClick={() => {
+                    const val = myPhoneInput.trim();
+                    if (!val) return;
+                    try { localStorage.setItem("apniDukanMyPhone", val); } catch {}
+                    setMyPhone(val);
+                  }}
+                >
+                  ઓર્ડર જુઓ
+                </button>
+              </div>
+            ) : (
+              <div>
+                {(() => {
+                  const myOrders = orders.filter((o) => o.customer?.phone === myPhone);
+                  if (myOrders.length === 0) {
+                    return <div style={{ textAlign: "center", color: T.inkSoft, fontSize: 13, marginTop: 30 }}>આ નંબર પર કોઈ ઓર્ડર મળ્યો નથી.</div>;
+                  }
+                  const STEPS = ["નવો", "કન્ફર્મ", "ડિલિવર થયો"];
+                  return myOrders.map((o) => {
+                    const currentStep = STEPS.indexOf(o.status || "નવો");
+                    return (
+                      <div key={o.id} style={{ background: "#fff", border: `1px solid ${T.hairline}`, borderRadius: 12, padding: 14, marginBottom: 12 }}>
+                        <div style={{ fontSize: 11, color: T.inkSoft, fontWeight: 700, marginBottom: 10 }}>
+                          {new Date(o.createdAt).toLocaleDateString("gu-IN", { day: "2-digit", month: "short", year: "numeric" })} — {formatRs(o.total)}
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "space-between", position: "relative", margin: "10px 0" }}>
+                          <div style={{ position: "absolute", top: 9, left: 10, right: 10, height: 2, background: T.hairline }} />
+                          {STEPS.map((s, i) => (
+                            <div key={s} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, position: "relative", zIndex: 1, flex: 1 }}>
+                              <div
+                                style={{
+                                  width: 20, height: 20, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
+                                  fontSize: 10, color: "#fff",
+                                  background: i < currentStep ? T.green : i === currentStep ? T.orange : T.hairline,
+                                }}
+                              >
+                                {i <= currentStep ? "✓" : ""}
+                              </div>
+                              <div style={{ fontSize: 8.5, color: i <= currentStep ? T.ink : T.inkSoft, fontWeight: i <= currentStep ? 800 : 600, textAlign: "center" }}>{s}</div>
+                            </div>
+                          ))}
+                        </div>
+                        <div style={{ fontSize: 11.5, color: T.inkSoft, marginBottom: 10 }}>
+                          {(o.items || []).map((i) => `${i.name} x${i.qty}`).join(", ")}
+                        </div>
+                        <button
+                          onClick={() => repeatOrder(o)}
+                          style={{ width: "100%", background: T.orange, color: "#fff", fontWeight: 800, fontSize: 12.5, padding: "9px 0", borderRadius: 10, border: "none" }}
+                        >
+                          🔁 ફરી ઓર્ડર કરો
+                        </button>
+                      </div>
+                    );
+                  });
+                })()}
+                <button
+                  onClick={() => {
+                    try { localStorage.removeItem("apniDukanMyPhone"); } catch {}
+                    setMyPhone("");
+                    setMyPhoneInput("");
+                  }}
+                  style={{ background: "none", border: "none", color: T.inkSoft, fontSize: 11.5, textDecoration: "underline", cursor: "pointer", marginTop: 4 }}
+                >
+                  બીજા નંબરથી જુઓ
+                </button>
+              </div>
+            )}
           </div>
         )}
 
