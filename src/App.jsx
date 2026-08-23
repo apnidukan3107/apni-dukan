@@ -2207,7 +2207,7 @@ export default function ApniDukanApp() {
     });
   }
 
-  const [checkoutForm, setCheckoutForm] = useState({ name: "", phone: "", address: "" });
+  const [checkoutForm, setCheckoutForm] = useState({ name: "", phone: "", address: "", referenceBy: "" });
   const [checkoutError, setCheckoutError] = useState("");
   // "no-bill" = direct order, no GST. "with-bill" = proper GST bill, 18% added.
   const [billOption, setBillOption] = useState("no-bill");
@@ -2257,7 +2257,7 @@ export default function ApniDukanApp() {
       setCart({});
       setLastOrderId(String(nextOrders.length));
       setView("success");
-      setCheckoutForm({ name: "", phone: "", address: "" });
+      setCheckoutForm({ name: "", phone: "", address: "", referenceBy: "" });
       setBillOption("no-bill");
       setGstNumber("");
       // Fire the real push notification via the Vercel API route — this
@@ -2305,11 +2305,54 @@ export default function ApniDukanApp() {
       setCart({});
       setLastOrderId(String(nextOrders.length));
       setView("success");
-      setCheckoutForm({ name: "", phone: "", address: "" });
+      setCheckoutForm({ name: "", phone: "", address: "", referenceBy: "" });
       setLoadError("ઓર્ડર થઈ ગયો, પણ સર્વર સાથે સેવ ના થયું: " + (e && e.message ? e.message : "અજાણી ભૂલ"));
     } finally {
       setSaving(false);
     }
+  }
+
+  // Opens a small printable invoice window for an order — the customer
+  // taps "Save as PDF" in the browser's print dialog. No extra library
+  // needed, so it can't break the Vercel build.
+  function downloadOrderPdf(o, orderNumber) {
+    const itemsRows = (o.items || [])
+      .map((i) => `<tr><td>${i.name}</td><td style="text-align:center">${i.qty}</td><td style="text-align:right">${formatRs(i.price)}</td><td style="text-align:right">${formatRs(i.price * i.qty)}</td></tr>`)
+      .join("");
+    const win = window.open("", "_blank");
+    if (!win) return;
+    win.document.write(`
+      <html>
+      <head>
+        <title>Order #${orderNumber}</title>
+        <style>
+          body{ font-family: 'Noto Sans Gujarati','Segoe UI',sans-serif; padding: 24px; color:#24282A; }
+          h1{ font-size:18px; margin-bottom:2px; }
+          .muted{ color:#666; font-size:12px; margin-bottom:16px; }
+          .ref{ color:#D8531F; font-weight:700; font-size:13px; margin-bottom:10px; }
+          table{ width:100%; border-collapse:collapse; margin-top:12px; }
+          th, td{ padding:6px 8px; border-bottom:1px solid #ddd; font-size:13px; }
+          th{ text-align:left; background:#F2EFE4; }
+          .total-row td{ font-weight:800; font-size:14px; border-top:2px solid #24282A; }
+        </style>
+      </head>
+      <body>
+        <h1>અપની દુકાન — ઓર્ડર #${orderNumber}</h1>
+        <div class="muted">${formatOrderDate(o.createdAt)}</div>
+        <div><strong>ગ્રાહક:</strong> ${o.customer.name} — ${o.customer.phone}</div>
+        <div><strong>સરનામું:</strong> ${o.customer.address}</div>
+        ${o.customer.referenceBy ? `<div class="ref">📇 Reference: ${o.customer.referenceBy}</div>` : ""}
+        <table>
+          <tr><th>પ્રોડક્ટ</th><th>જથ્થો</th><th>ભાવ</th><th>કુલ</th></tr>
+          ${itemsRows}
+          <tr class="total-row"><td colspan="3">કુલ રકમ</td><td style="text-align:right">${formatRs(o.total)}</td></tr>
+        </table>
+      </body>
+      </html>
+    `);
+    win.document.close();
+    win.focus();
+    setTimeout(() => win.print(), 300);
   }
 
   async function updateOrderStatus(orderId, status) {
@@ -3068,6 +3111,13 @@ export default function ApniDukanApp() {
                 onChange={(e) => setCheckoutForm((f) => ({ ...f, phone: e.target.value.replace(/[^0-9]/g, "").slice(0, 10) }))}
                 placeholder="9XXXXXXXXX"
               />
+              <label style={styles.label}>Reference By (કોણે મોકલ્યા? — વૈકલ્પિક)</label>
+              <input
+                style={{ ...styles.textInput, borderStyle: "dashed", borderColor: T.orange }}
+                value={checkoutForm.referenceBy}
+                onChange={(e) => setCheckoutForm((f) => ({ ...f, referenceBy: e.target.value }))}
+                placeholder="દા.ત. રમેશભાઈ, વોટ્સએપ સ્ટેટસ"
+              />
               <label style={styles.label}>ડિલિવરી સરનામું</label>
               <textarea
                 style={{ ...styles.textInput, height: 70 }}
@@ -3435,10 +3485,24 @@ export default function ApniDukanApp() {
                           <div style={{ fontSize: 10.5, color: "#a49c88", marginTop: 2 }}>{formatOrderDate(o.createdAt)}</div>
                           <div style={{ fontSize: 11, color: "#8a8378", marginTop: 4 }}>{o.customer.phone}</div>
                           <div style={{ fontSize: 11, color: "#8a8378", marginBottom: 4 }}>{o.customer.address}</div>
+                          {o.customer.referenceBy ? (
+                            <div style={{ fontSize: 11, color: T.orange, fontWeight: 700, marginBottom: 4 }}>
+                              📇 Reference: {o.customer.referenceBy}
+                            </div>
+                          ) : null}
                           <div style={{ fontSize: 12, color: "#2c2a26" }}>
                             {o.items.map((i) => `${i.name} x${i.qty}`).join(", ")}
                           </div>
                           <div style={{ fontWeight: 800, fontSize: 13, margin: "4px 0" }}>{formatRs(o.total)}</div>
+                          <button
+                            onClick={() => downloadOrderPdf(o, orderNumber)}
+                            style={{
+                              display: "flex", alignItems: "center", gap: 6, background: T.green, color: "#fff",
+                              fontWeight: 800, fontSize: 11.5, padding: "6px 12px", borderRadius: 8, border: "none", marginBottom: 8,
+                            }}
+                          >
+                            📄 PDF ડાઉનલોડ કરો
+                          </button>
                           <div style={styles.statusRow}>
                             {["નવો", "કન્ફર્મ", "ડિલિવર થયો"].map((s) => (
                               <button
