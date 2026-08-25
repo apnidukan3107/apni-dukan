@@ -108,10 +108,12 @@ async function productDelete(id) {
   await deleteDoc(doc(db, "store", productKey(id)));
 }
 async function productsBulkSave(productList) {
-  // Firestore batches allow up to 500 writes; chunk just in case a very
-  // large bulk-add is done in one go.
-  for (let i = 0; i < productList.length; i += 400) {
-    const chunk = productList.slice(i, i + 400);
+  // Firestore batches have both a 500-write limit AND a 10MB total-size
+  // limit. Product images (base64) can be tens of KB each, so a chunk of
+  // 400 products can easily exceed 10MB and fail. Keep chunks small
+  // (40) to stay safely under that limit regardless of image size.
+  for (let i = 0; i < productList.length; i += 40) {
+    const chunk = productList.slice(i, i + 40);
     const batch = writeBatch(db);
     chunk.forEach((p) => {
       const { id, ...rest } = p;
