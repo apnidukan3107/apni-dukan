@@ -2438,6 +2438,25 @@ export default function ApniDukanApp() {
     }
   }
 
+  // One-time fix: PIX/Ecodrive products were already saved in Firestore
+  // under their old categories, and the new Lifting Belt products don't
+  // exist there yet — importSeedCatalog only adds missing products, it
+  // doesn't overwrite existing ones. This force-re-saves everything under
+  // the "Belt" category (V Belt + Lifting Belt) with today's data.
+  async function refreshBeltCategory() {
+    setSaving(true);
+    try {
+      const beltProducts = SEED_PRODUCTS.filter((p) => p.category === "Belt");
+      await productsBulkSave(beltProducts);
+      alert(`Belt કેટેગરી અપડેટ થઈ ગઈ! (${beltProducts.length} પ્રોડક્ટ્સ)`);
+    } catch (err) {
+      console.error(err);
+      alert("અપડેટ કરવામાં તકલીફ થઈ.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function saveProduct() {
     if (!newProduct.name.trim() || !newProduct.price) return;
     const stockVal = newProduct.stock === "" ? undefined : Number(newProduct.stock);
@@ -3429,6 +3448,9 @@ export default function ApniDukanApp() {
               </button>
               <button style={{ ...styles.primaryBtn, marginTop: 0, marginBottom: 16, background: T.green }} onClick={refreshWasherPhotos} disabled={saving}>
                 {saving ? "અપડેટ થાય છે..." : "🪛 વોશર ફોટો અપડેટ કરો"}
+              </button>
+              <button style={{ ...styles.primaryBtn, marginTop: 0, marginBottom: 16, background: "#6d4a9e" }} onClick={refreshBeltCategory} disabled={saving}>
+                {saving ? "અપડેટ થાય છે..." : "🪢 Belt કેટેગરી અપડેટ કરો (V Belt + Lifting Belt)"}
               </button>
 
 
