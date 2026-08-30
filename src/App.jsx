@@ -1920,15 +1920,15 @@ export default function ApniDukanApp() {
   // so there's no more endless scrolling to find today's orders.
   const [expandedDateGroups, setExpandedDateGroups] = useState(() => new Set());
 
-  // ---- background music: Independence Day special, active only for 24
-  // hours from deploy time, then it stops playing for everyone forever. ----
+  // ---- background music: active only for 12 hours from deploy time,
+  // then it stops playing for everyone forever. ----
   useEffect(() => {
-    // 24 hours from when this was set up (16 Aug 2026, 5:02 PM IST).
+    // 12 hours from when this was set up (30 Aug 2026, 8:17 PM IST).
     // After this, the music will never play again for any user.
-    const MUSIC_EXPIRES_AT = new Date("2026-08-16T17:02:00+05:30").getTime();
+    const MUSIC_EXPIRES_AT = new Date("2026-08-31T08:17:00+05:30").getTime();
     if (Date.now() > MUSIC_EXPIRES_AT) return;
 
-    const audio = new Audio("/music.mp3");
+    const audio = new Audio("/music-temp.mp3");
     audio.loop = true;
     audio.volume = 0.5;
 
