@@ -2751,6 +2751,7 @@ export default function ApniDukanApp() {
         {view === "home" && (
           <div style={styles.scrollArea}>
             <BannerCarousel slides={[<JanmashtamiBanner key="krishna" />, <OmMobileAdBanner key="ommobile" />, <ApniDukanPromoBanner key="apnidukan" />]} />
+            <ApkDownloadBanner />
             <IndependenceDayBanner />
             <AdStrip />
             <div style={styles.searchWrap}>
@@ -4411,6 +4412,44 @@ function ApniDukanPromoBanner() {
         }}
       >
         💬 WhatsApp પર સંપર્ક કરો — 9898154548
+      </div>
+    </a>
+  );
+}
+
+/* APK download banner — a clean strip in the space below the carousel,
+   linking directly to the hosted APK file so it downloads on tap. */
+function ApkDownloadBanner() {
+  return (
+    <a
+      href="/Download/Apni_Dukan_se.apk"
+      download
+      style={{
+        display: "flex", alignItems: "center", gap: 12,
+        background: "linear-gradient(90deg, #1F5C40, #2a7a56)",
+        borderRadius: 14, padding: "12px 16px", marginBottom: 10,
+        textDecoration: "none",
+      }}
+    >
+      <div
+        style={{
+          width: 40, height: 40, borderRadius: 10, background: "rgba(255,255,255,0.15)",
+          display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0,
+        }}
+      >
+        📲
+      </div>
+      <div style={{ flex: 1 }}>
+        <div style={{ color: "#fff", fontWeight: 800, fontSize: 13.5 }}>Apni Dukan App ડાઉનલોડ કરો</div>
+        <div style={{ color: "rgba(255,255,255,0.8)", fontSize: 11 }}>Android APK — ફાસ્ટ ઍક્સેસ મેળવો</div>
+      </div>
+      <div
+        style={{
+          background: "#fff", color: T.green, fontWeight: 800, fontSize: 11.5,
+          padding: "7px 14px", borderRadius: 8, flexShrink: 0,
+        }}
+      >
+        ⬇ Download
       </div>
     </a>
   );
