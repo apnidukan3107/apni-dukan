@@ -1,5 +1,0 @@
-{
-  "rewrites": [
-    { "source": "/((?!Download/).*)", "destination": "/index.html" }
-  ]
-}
