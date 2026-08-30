@@ -4422,7 +4422,7 @@ function ApniDukanPromoBanner() {
 function ApkDownloadBanner() {
   return (
     <a
-      href="/Download/Apni_Dukan_se.apk"
+      href="/Download/Apni%20Dukan%20se.apk"
       download
       style={{
         display: "flex", alignItems: "center", gap: 12,
