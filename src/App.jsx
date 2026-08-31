@@ -1925,7 +1925,7 @@ export default function ApniDukanApp() {
   useEffect(() => {
     // 12 hours from when this was set up (30 Aug 2026, 8:17 PM IST).
     // After this, the music will never play again for any user.
-    const MUSIC_EXPIRES_AT = new Date("2026-08-31T08:17:00+05:30").getTime();
+    const MUSIC_EXPIRES_AT = new Date("2026-09-01T12:43:00+05:30").getTime();
     if (Date.now() > MUSIC_EXPIRES_AT) return;
 
     const audio = new Audio("/music-temp.mp3");
