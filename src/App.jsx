@@ -2637,6 +2637,7 @@ export default function ApniDukanApp() {
   return (
     <div style={styles.appShell} className="app-shell">
       <FallingLogoAdsOverlay />
+      <DuckAnimation />
       <link rel="preconnect" href="https://fonts.googleapis.com" />
       <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Noto+Sans+Gujarati:wght@400;600;700;800&display=swap" rel="stylesheet" />
       <style>{`
@@ -4419,6 +4420,37 @@ function ApniDukanPromoBanner() {
 
 /* APK download banner — a clean strip in the space below the carousel,
    linking directly to the hosted APK file so it downloads on tap. */
+/* Duck animation — a small walking GIF fixed at the very bottom of the
+   screen, moving left-right continuously across the viewport. */
+function DuckAnimation() {
+  return (
+    <div
+      style={{
+        position: "fixed", left: 0, right: 0, bottom: 0, height: 70,
+        pointerEvents: "none", overflow: "hidden", zIndex: 9998,
+      }}
+    >
+      <img
+        src="/duck-animation.gif"
+        alt="duck"
+        style={{
+          position: "absolute", bottom: 0, width: 60,
+          animation: "duckWalk 8s linear infinite",
+        }}
+      />
+      <style>{`
+        @keyframes duckWalk {
+          0%   { left: -60px; transform: scaleX(1); }
+          49%  { left: calc(100% + 0px); transform: scaleX(1); }
+          50%  { left: calc(100% + 0px); transform: scaleX(-1); }
+          99%  { left: -60px; transform: scaleX(-1); }
+          100% { left: -60px; transform: scaleX(1); }
+        }
+      `}</style>
+    </div>
+  );
+}
+
 function ApkDownloadBanner() {
   return (
     <a
