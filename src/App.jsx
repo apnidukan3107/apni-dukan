@@ -4426,7 +4426,7 @@ function DuckAnimation() {
   return (
     <div
       style={{
-        position: "fixed", left: 0, right: 0, bottom: 0, height: 70,
+        position: "fixed", left: 0, right: 0, bottom: 0, height: 110,
         pointerEvents: "none", overflow: "hidden", zIndex: 9998,
       }}
     >
@@ -4434,7 +4434,7 @@ function DuckAnimation() {
         src="/duck-animation.gif"
         alt="duck"
         style={{
-          position: "absolute", bottom: 0, width: 60,
+          position: "absolute", bottom: 0, width: 100,
           animation: "duckWalk 8s linear infinite",
         }}
       />
