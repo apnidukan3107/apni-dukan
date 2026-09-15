@@ -8,7 +8,18 @@ import { initializeApp } from "firebase/app";
 import { getFirestore, doc, getDoc, setDoc, deleteDoc, onSnapshot, collection, getDocs, writeBatch } from "firebase/firestore";
 import { getMessaging, getToken, isSupported as isMessagingSupported } from "firebase/messaging";
 import { getAnalytics } from "firebase/analytics";
-
+if (typeof window !== "undefined") {
+  window.addEventListener("error", (e) => {
+    document.body.innerHTML =
+      "<pre style='color:red;padding:16px;white-space:pre-wrap;font-size:14px'>" +
+      (e.error?.stack || e.message) + "</pre>";
+  });
+  window.addEventListener("unhandledrejection", (e) => {
+    document.body.innerHTML =
+      "<pre style='color:red;padding:16px;white-space:pre-wrap;font-size:14px'>" +
+      (e.reason?.stack || e.reason) + "</pre>";
+  });
+}
 const firebaseConfig = {
   apiKey: "AIzaSyC9oJrhtVRE91_fF8FHEWXbcBJnY-916Zc",
   authDomain: "apni-dukan-b8e19.firebaseapp.com",
