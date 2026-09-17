@@ -1859,6 +1859,7 @@ export default function ApniDukanApp() {
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState("");
 
+  const [zoomImage, setZoomImage] = useState(null);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("બધું");
   const [subcategory, setSubcategory] = useState("બધું");
@@ -3049,7 +3050,10 @@ export default function ApniDukanApp() {
             <div style={styles.grid}>
               {filtered.map((p) => (
                 <div key={p.id} style={styles.card}>
-                  <div style={styles.cardImgWrap}>
+                  <div
+                    style={{ ...styles.cardImgWrap, cursor: resolveProductImage(p) ? "zoom-in" : "default" }}
+                    onClick={() => { const img = resolveProductImage(p); if (img) setZoomImage({ src: img, name: p.name }); }}
+                  >
                     {resolveProductImage(p) ? (
                       <img src={resolveProductImage(p)} alt={p.name} style={styles.cardImg} />
                     ) : (
@@ -3061,7 +3065,7 @@ export default function ApniDukanApp() {
                       </span>
                     ) : null}
                     <button
-                      onClick={() => toggleWishlist(p.id)}
+                      onClick={(e) => { e.stopPropagation(); toggleWishlist(p.id); }}
                       aria-label="wishlist"
                       style={{
                         position: "absolute", top: 6, right: 6, width: 26, height: 26,
@@ -3160,7 +3164,12 @@ export default function ApniDukanApp() {
                   {cartItems.map((item) => (
                     <div key={item.id} style={styles.cartRow}>
                       {resolveProductImage(item) ? (
-                        <img src={resolveProductImage(item)} alt={item.name} style={{ width: 32, height: 32, borderRadius: 6, objectFit: "cover" }} />
+                        <img
+                          src={resolveProductImage(item)}
+                          alt={item.name}
+                          style={{ width: 32, height: 32, borderRadius: 6, objectFit: "cover", cursor: "zoom-in" }}
+                          onClick={() => setZoomImage({ src: resolveProductImage(item), name: item.name })}
+                        />
                       ) : (
                         <span style={{ fontSize: 28 }}>{item.img}</span>
                       )}
@@ -3380,14 +3389,17 @@ export default function ApniDukanApp() {
               <div style={styles.grid}>
                 {products.filter((p) => wishlist.includes(p.id)).map((p) => (
                   <div key={p.id} style={styles.card}>
-                    <div style={styles.cardImgWrap}>
+                    <div
+                      style={{ ...styles.cardImgWrap, cursor: resolveProductImage(p) ? "zoom-in" : "default" }}
+                      onClick={() => { const img = resolveProductImage(p); if (img) setZoomImage({ src: img, name: p.name }); }}
+                    >
                       {resolveProductImage(p) ? (
                         <img src={resolveProductImage(p)} alt={p.name} style={styles.cardImg} />
                       ) : (
                         <span style={{ fontSize: 40 }}>{p.img}</span>
                       )}
                       <button
-                        onClick={() => toggleWishlist(p.id)}
+                        onClick={(e) => { e.stopPropagation(); toggleWishlist(p.id); }}
                         style={{
                           position: "absolute", top: 6, right: 6, width: 26, height: 26,
                           borderRadius: 99, background: "rgba(255,255,255,0.9)", border: "none",
@@ -4133,6 +4145,43 @@ export default function ApniDukanApp() {
           </div>
         )}
       </div>
+      {zoomImage && (
+        <div
+          onClick={() => setZoomImage(null)}
+          style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)",
+            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+            zIndex: 10000, padding: 24, cursor: "zoom-out",
+          }}
+        >
+          <button
+            onClick={(e) => { e.stopPropagation(); setZoomImage(null); }}
+            aria-label="close"
+            style={{
+              position: "absolute", top: 16, right: 16, width: 36, height: 36,
+              borderRadius: 99, background: "rgba(255,255,255,0.15)", border: "none",
+              color: "#fff", fontSize: 20, cursor: "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}
+          >
+            ×
+          </button>
+          <img
+            src={zoomImage.src}
+            alt={zoomImage.name || "product"}
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              maxWidth: "100%", maxHeight: "80vh", objectFit: "contain",
+              borderRadius: 12, boxShadow: "0 8px 30px rgba(0,0,0,0.5)", cursor: "default",
+            }}
+          />
+          {zoomImage.name && (
+            <div style={{ color: "#fff", fontSize: 14, fontWeight: 700, marginTop: 14, textAlign: "center", maxWidth: 320 }}>
+              {zoomImage.name}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
