@@ -2848,7 +2848,7 @@ export default function ApniDukanApp() {
         {/* HOME */}
         {view === "home" && (
           <div style={styles.scrollArea}>
-            <BannerCarousel slides={[<JanmashtamiBanner key="krishna" />, <OmMobileAdBanner key="ommobile" />, <AluminiumBharatBanner key="aluminiumbharat" />]} />
+            <BannerCarousel slides={[<AluminiumBharatBanner key="aluminiumbharat" />]} />
             <ApkDownloadBanner />
             <IndependenceDayBanner />
             <AdStrip />
