@@ -2347,18 +2347,25 @@ export default function ApniDukanApp() {
     });
   }
 
-  const [checkoutForm, setCheckoutForm] = useState({ name: "", phone: "", address: "", referenceBy: "" });
+  const [checkoutForm, setCheckoutForm] = useState({ name: "", phone: "", address: "", pincode: "", referenceBy: "" });
   const [checkoutError, setCheckoutError] = useState("");
+  // Pincodes eligible for free delivery regardless of order total.
+  const FREE_DELIVERY_PINCODES = ["382345", "382330"];
+  const isFreeDeliveryPincode = FREE_DELIVERY_PINCODES.includes(checkoutForm.pincode.trim());
   // "no-bill" = direct order, no GST. "with-bill" = proper GST bill, 18% added.
   const [billOption, setBillOption] = useState("no-bill");
   const [gstNumber, setGstNumber] = useState("");
-  const deliveryFee = cartTotal > 999 ? 0 : 49;
+  const deliveryFee = (cartTotal > 999 || isFreeDeliveryPincode) ? 0 : 49;
   const gstAmount = billOption === "with-bill" ? Math.round(cartTotal * 0.18) : 0;
   const grandTotal = cartTotal + deliveryFee + gstAmount;
 
   async function placeOrder() {
-    if (!checkoutForm.name.trim() || !checkoutForm.phone.trim() || !checkoutForm.address.trim()) {
+    if (!checkoutForm.name.trim() || !checkoutForm.phone.trim() || !checkoutForm.address.trim() || !checkoutForm.pincode.trim()) {
       setCheckoutError("કૃપા કરીને બધી વિગત ભરો.");
+      return;
+    }
+    if (checkoutForm.pincode.trim().length !== 6) {
+      setCheckoutError("કૃપા કરીને સાચો 6 અંકનો પિનકોડ ભરો.");
       return;
     }
     if (billOption === "with-bill" && !gstNumber.trim()) {
@@ -2397,7 +2404,7 @@ export default function ApniDukanApp() {
       setCart({});
       setLastOrderId(String(nextOrders.length));
       setView("success");
-      setCheckoutForm({ name: "", phone: "", address: "", referenceBy: "" });
+      setCheckoutForm({ name: "", phone: "", address: "", pincode: "", referenceBy: "" });
       setBillOption("no-bill");
       setGstNumber("");
       // Fire the real push notification via the Vercel API route — this
@@ -2445,7 +2452,7 @@ export default function ApniDukanApp() {
       setCart({});
       setLastOrderId(String(nextOrders.length));
       setView("success");
-      setCheckoutForm({ name: "", phone: "", address: "", referenceBy: "" });
+      setCheckoutForm({ name: "", phone: "", address: "", pincode: "", referenceBy: "" });
       setLoadError("ઓર્ડર થઈ ગયો, પણ સર્વર સાથે સેવ ના થયું: " + (e && e.message ? e.message : "અજાણી ભૂલ"));
     } finally {
       setSaving(false);
@@ -3335,6 +3342,25 @@ export default function ApniDukanApp() {
                 onChange={(e) => setCheckoutForm((f) => ({ ...f, address: e.target.value }))}
                 placeholder="ઘર નં, શેરી, શહેર, પિનકોડ"
               />
+              <label style={styles.label}>પિનકોડ</label>
+              <input
+                style={styles.textInput}
+                value={checkoutForm.pincode}
+                onChange={(e) => setCheckoutForm((f) => ({ ...f, pincode: e.target.value.replace(/[^0-9]/g, "").slice(0, 6) }))}
+                placeholder="દા.ત. 382345"
+                inputMode="numeric"
+              />
+              {checkoutForm.pincode.trim().length === 6 && (
+                isFreeDeliveryPincode ? (
+                  <div style={{ color: "#1e9c3a", fontWeight: 700, fontSize: 12.5, marginTop: -10, marginBottom: 12 }}>
+                    ✓ તમારા વિસ્તારમાં ફ્રી ડિલિવરી ઉપલબ્ધ છે!
+                  </div>
+                ) : (
+                  <div style={{ color: "#8a8378", fontWeight: 600, fontSize: 12.5, marginTop: -10, marginBottom: 12 }}>
+                    આ પિનકોડ પર ફ્રી ડિલિવરી નથી — ₹999+ ના ઓર્ડર પર ફ્રી ડિલિવરી મળશે.
+                  </div>
+                )
+              )}
               <label style={styles.label}>ચુકવણી પદ્ધતિ</label>
               <div style={styles.payOptions}>
                 <div style={{ ...styles.payChip, ...styles.payChipActive }}>કેશ ઓન ડિલિવરી</div>
