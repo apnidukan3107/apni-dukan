@@ -7,7 +7,7 @@ import {
 import { initializeApp } from "firebase/app";
 import { getFirestore, doc, getDoc, setDoc, deleteDoc, onSnapshot, collection, getDocs, writeBatch } from "firebase/firestore";
 import { getMessaging, getToken, isSupported as isMessagingSupported } from "firebase/messaging";
-import { getAnalytics } from "firebase/analytics";
+import { getAnalytics, logEvent } from "firebase/analytics";
 
 const firebaseConfig = {
   apiKey: "AIzaSyC9oJrhtVRE91_fF8FHEWXbcBJnY-916Zc",
@@ -2404,6 +2404,22 @@ export default function ApniDukanApp() {
       setCart({});
       setLastOrderId(String(nextOrders.length));
       setView("success");
+      // Log a GA4 "purchase" event so revenue shows up in Analytics —
+      // without this, GA never knows an order happened even though it's
+      // saved fine in storage. Wrapped in try/catch so it never blocks
+      // the order if Analytics fails to load.
+      try {
+        logEvent(analytics, "purchase", {
+          transaction_id: order.id,
+          value: order.total,
+          currency: "INR",
+          items: order.items.map((i) => ({
+            item_name: i.name,
+            price: i.price,
+            quantity: i.qty,
+          })),
+        });
+      } catch {}
       setCheckoutForm({ name: "", phone: "", address: "", pincode: "", referenceBy: "" });
       setBillOption("no-bill");
       setGstNumber("");
@@ -2452,6 +2468,18 @@ export default function ApniDukanApp() {
       setCart({});
       setLastOrderId(String(nextOrders.length));
       setView("success");
+      try {
+        logEvent(analytics, "purchase", {
+          transaction_id: order.id,
+          value: order.total,
+          currency: "INR",
+          items: order.items.map((i) => ({
+            item_name: i.name,
+            price: i.price,
+            quantity: i.qty,
+          })),
+        });
+      } catch {}
       setCheckoutForm({ name: "", phone: "", address: "", pincode: "", referenceBy: "" });
       setLoadError("ઓર્ડર થઈ ગયો, પણ સર્વર સાથે સેવ ના થયું: " + (e && e.message ? e.message : "અજાણી ભૂલ"));
     } finally {
