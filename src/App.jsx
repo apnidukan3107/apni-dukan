@@ -2376,6 +2376,12 @@ export default function ApniDukanApp() {
       setAppliedPromoCode(null);
       return;
     }
+    const usedCount = orders.filter((o) => o.promoCode === code).length;
+    if (usedCount >= 2) {
+      setPromoError("Sorry, its too late — this code has expired.");
+      setAppliedPromoCode(null);
+      return;
+    }
     setAppliedPromoCode(code);
     setPromoError("");
   }
@@ -2398,6 +2404,14 @@ export default function ApniDukanApp() {
     if (billOption === "with-bill" && !gstNumber.trim()) {
       setCheckoutError("કૃપા કરીને GST નંબર ભરો.");
       return;
+    }
+    if (appliedPromoCode) {
+      const usedCount = orders.filter((o) => o.promoCode === appliedPromoCode).length;
+      if (usedCount >= 2) {
+        setCheckoutError("Sorry, its too late — this code has expired.");
+        setAppliedPromoCode(null);
+        return;
+      }
     }
     setCheckoutError("");
     setSaving(true);
@@ -3425,7 +3439,27 @@ export default function ApniDukanApp() {
                   <input
                     style={{ ...styles.textInput, flex: 1, textTransform: "uppercase" }}
                     value={promoCodeInput}
-                    onChange={(e) => { setPromoCodeInput(e.target.value); setPromoError(""); }}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      setPromoCodeInput(raw);
+                      const code = raw.trim().toUpperCase();
+                      if (!code) {
+                        setPromoError("");
+                        return;
+                      }
+                      if (!PROMO_CODES[code]) {
+                        setPromoError("");
+                        return;
+                      }
+                      const usedCount = orders.filter((o) => o.promoCode === code).length;
+                      if (usedCount >= 2) {
+                        setAppliedPromoCode(null);
+                        setPromoError("Sorry, its too late — this code has expired.");
+                      } else {
+                        setAppliedPromoCode(code);
+                        setPromoError("");
+                      }
+                    }}
                     placeholder="દા.ત. NAVGHAN20"
                   />
                   <button
