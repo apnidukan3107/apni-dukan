@@ -2347,17 +2347,44 @@ export default function ApniDukanApp() {
     });
   }
 
-  const [checkoutForm, setCheckoutForm] = useState({ name: "", phone: "", address: "", pincode: "", referenceBy: "" });
+  const [checkoutForm, setCheckoutForm] = useState({ name: "", phone: "", address: "", pincode: "" });
+  const [promoCodeInput, setPromoCodeInput] = useState("");
+  const [appliedPromoCode, setAppliedPromoCode] = useState(null);
+  const [promoError, setPromoError] = useState("");
   const [checkoutError, setCheckoutError] = useState("");
   // Pincodes eligible for free delivery regardless of order total.
   const FREE_DELIVERY_PINCODES = ["382345", "382330"];
+  const PROMO_CODES = { NAVGHAN20: 20, KARAN20: 20, YASHIKA20: 20, SUBHASH20: 20 };
   const isFreeDeliveryPincode = FREE_DELIVERY_PINCODES.includes(checkoutForm.pincode.trim());
   // "no-bill" = direct order, no GST. "with-bill" = proper GST bill, 18% added.
   const [billOption, setBillOption] = useState("no-bill");
   const [gstNumber, setGstNumber] = useState("");
   const deliveryFee = (cartTotal > 999 || isFreeDeliveryPincode) ? 0 : 49;
   const gstAmount = billOption === "with-bill" ? Math.round(cartTotal * 0.18) : 0;
-  const grandTotal = cartTotal + deliveryFee + gstAmount;
+  const promoDiscountPercent = appliedPromoCode ? PROMO_CODES[appliedPromoCode] || 0 : 0;
+  const promoDiscountAmount = Math.round((cartTotal + gstAmount) * (promoDiscountPercent / 100));
+  const grandTotal = cartTotal + deliveryFee + gstAmount - promoDiscountAmount;
+
+  function applyPromoCode() {
+    const code = promoCodeInput.trim().toUpperCase();
+    if (!code) {
+      setPromoError("પ્રોમો કોડ નાખો.");
+      return;
+    }
+    if (!PROMO_CODES[code]) {
+      setPromoError("આ પ્રોમો કોડ માન્ય નથી.");
+      setAppliedPromoCode(null);
+      return;
+    }
+    setAppliedPromoCode(code);
+    setPromoError("");
+  }
+
+  function removePromoCode() {
+    setAppliedPromoCode(null);
+    setPromoCodeInput("");
+    setPromoError("");
+  }
 
   async function placeOrder() {
     if (!checkoutForm.name.trim() || !checkoutForm.phone.trim() || !checkoutForm.address.trim() || !checkoutForm.pincode.trim()) {
@@ -2382,6 +2409,8 @@ export default function ApniDukanApp() {
       billOption,
       gstNumber: billOption === "with-bill" ? gstNumber.trim() : undefined,
       gstAmount,
+      promoCode: appliedPromoCode || undefined,
+      promoDiscountAmount: appliedPromoCode ? promoDiscountAmount : 0,
       total: grandTotal,
       customer: { ...checkoutForm },
       payment: "કેશ ઓન ડિલિવરી",
@@ -2420,7 +2449,9 @@ export default function ApniDukanApp() {
           })),
         });
       } catch {}
-      setCheckoutForm({ name: "", phone: "", address: "", pincode: "", referenceBy: "" });
+      setCheckoutForm({ name: "", phone: "", address: "", pincode: "" });
+      setAppliedPromoCode(null);
+      setPromoCodeInput("");
       setBillOption("no-bill");
       setGstNumber("");
       // Fire the real push notification via the Vercel API route — this
@@ -2480,7 +2511,9 @@ export default function ApniDukanApp() {
           })),
         });
       } catch {}
-      setCheckoutForm({ name: "", phone: "", address: "", pincode: "", referenceBy: "" });
+      setCheckoutForm({ name: "", phone: "", address: "", pincode: "" });
+      setAppliedPromoCode(null);
+      setPromoCodeInput("");
       setLoadError("ઓર્ડર થઈ ગયો, પણ સર્વર સાથે સેવ ના થયું: " + (e && e.message ? e.message : "અજાણી ભૂલ"));
     } finally {
       setSaving(false);
@@ -2516,7 +2549,6 @@ export default function ApniDukanApp() {
         <div class="muted">${formatOrderDate(o.createdAt)}</div>
         <div><strong>ગ્રાહક:</strong> ${o.customer.name} — ${o.customer.phone}</div>
         <div><strong>સરનામું:</strong> ${o.customer.address}</div>
-        ${o.customer.referenceBy ? `<div class="ref">📇 Reference: ${o.customer.referenceBy}</div>` : ""}
         <table>
           <tr><th>પ્રોડક્ટ</th><th>જથ્થો</th><th>ભાવ</th><th>કુલ</th></tr>
           ${itemsRows}
@@ -2550,24 +2582,6 @@ export default function ApniDukanApp() {
       const toAdd = SEED_PRODUCTS.filter((p) => !existingIds.has(p.id));
       if (toAdd.length) await productsBulkSave(toAdd);
     } catch {} finally {
-      setSaving(false);
-    }
-  }
-
-  // One-time fix: washer products were already saved in Firestore with an
-  // older photo baked in, so updating WASHER_IMG in code alone doesn't
-  // change what's already stored. This re-saves just those 10 products
-  // with today's WASHER_IMG.
-  async function refreshWasherPhotos() {
-    setSaving(true);
-    try {
-      const washerProducts = SEED_PRODUCTS.filter((p) => p.id.startsWith("wsh-"));
-      await productsBulkSave(washerProducts);
-      alert("વોશર ફોટો અપડેટ થઈ ગયો!");
-    } catch (err) {
-      console.error(err);
-      alert("અપડેટ કરવામાં તકલીફ થઈ.");
-    } finally {
       setSaving(false);
     }
   }
@@ -3356,13 +3370,6 @@ export default function ApniDukanApp() {
                 onChange={(e) => setCheckoutForm((f) => ({ ...f, phone: e.target.value.replace(/[^0-9]/g, "").slice(0, 10) }))}
                 placeholder="9XXXXXXXXX"
               />
-              <label style={styles.label}>Reference By (કોણે મોકલ્યા? — વૈકલ્પિક)</label>
-              <input
-                style={{ ...styles.textInput, borderStyle: "dashed", borderColor: T.orange }}
-                value={checkoutForm.referenceBy}
-                onChange={(e) => setCheckoutForm((f) => ({ ...f, referenceBy: e.target.value }))}
-                placeholder="દા.ત. રમેશભાઈ, વોટ્સએપ સ્ટેટસ"
-              />
               <label style={styles.label}>ડિલિવરી સરનામું</label>
               <textarea
                 style={{ ...styles.textInput, height: 70 }}
@@ -3394,6 +3401,46 @@ export default function ApniDukanApp() {
                 <div style={{ ...styles.payChip, ...styles.payChipActive }}>કેશ ઓન ડિલિવરી</div>
               </div>
 
+              <label style={styles.label}>🎟️ પ્રોમો કોડ (વૈકલ્પિક)</label>
+              {appliedPromoCode ? (
+                <div
+                  style={{
+                    display: "flex", alignItems: "center", justifyContent: "space-between",
+                    background: T.greenLight, border: `1px dashed ${T.green}`, borderRadius: 10,
+                    padding: "10px 12px", marginBottom: 12,
+                  }}
+                >
+                  <span style={{ fontWeight: 800, fontSize: 13, color: T.green }}>
+                    ✓ {appliedPromoCode} લાગુ થયો — {promoDiscountPercent}% છૂટ
+                  </span>
+                  <button
+                    onClick={removePromoCode}
+                    style={{ background: "none", border: "none", color: "#b23b3b", fontWeight: 700, fontSize: 12, cursor: "pointer" }}
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ) : (
+                <div style={{ display: "flex", gap: 8, marginBottom: 4 }}>
+                  <input
+                    style={{ ...styles.textInput, flex: 1, textTransform: "uppercase" }}
+                    value={promoCodeInput}
+                    onChange={(e) => { setPromoCodeInput(e.target.value); setPromoError(""); }}
+                    placeholder="દા.ત. NAVGHAN20"
+                  />
+                  <button
+                    onClick={applyPromoCode}
+                    style={{
+                      background: T.orange, color: "#fff", fontWeight: 800, fontSize: 13,
+                      border: "none", borderRadius: 10, padding: "0 16px", cursor: "pointer",
+                    }}
+                  >
+                    લાગુ કરો
+                  </button>
+                </div>
+              )}
+              {promoError && <div style={styles.errorText}>{promoError}</div>}
+
               {checkoutError && <div style={styles.errorText}>{checkoutError}</div>}
 
               <div style={{ ...styles.summaryBox, marginTop: 20 }}>
@@ -3402,6 +3449,11 @@ export default function ApniDukanApp() {
                   <div style={styles.summaryRow}><span>GST (18%)</span><span>{formatRs(gstAmount)}</span></div>
                 )}
                 <div style={styles.summaryRow}><span>ડિલિવરી</span><span>{deliveryFee === 0 ? "મફત" : formatRs(deliveryFee)}</span></div>
+                {appliedPromoCode && (
+                  <div style={{ ...styles.summaryRow, color: T.green, fontWeight: 700 }}>
+                    <span>પ્રોમો છૂટ ({appliedPromoCode})</span><span>-{formatRs(promoDiscountAmount)}</span>
+                  </div>
+                )}
                 <div style={{ ...styles.summaryRow, ...styles.summaryTotal }}>
                   <span>કુલ ચૂકવવાનું (ડિલિવરી વખતે)</span>
                   <span>{formatRs(grandTotal)}</span>
@@ -3633,14 +3685,40 @@ export default function ApniDukanApp() {
               <button style={{ ...styles.primaryBtn, marginTop: 0, marginBottom: 16 }} onClick={importSeedCatalog} disabled={saving}>
                 {saving ? "લોડ થાય છે..." : "Taparia Handtools કેટલોગ લોડ/અપડેટ કરો"}
               </button>
-              <button style={{ ...styles.primaryBtn, marginTop: 0, marginBottom: 16, background: T.green }} onClick={refreshWasherPhotos} disabled={saving}>
-                {saving ? "અપડેટ થાય છે..." : "🪛 વોશર ફોટો અપડેટ કરો"}
-              </button>
               <button style={{ ...styles.primaryBtn, marginTop: 0, marginBottom: 16, background: "#6d4a9e" }} onClick={refreshBeltCategory} disabled={saving}>
                 {saving ? "અપડેટ થાય છે..." : "🪢 Belt કેટેગરી અપડેટ કરો (V Belt + Lifting Belt)"}
               </button>
 
-
+              <div style={styles.adminSectionTitle}>
+                <Tag size={16} /> 🎟️ પ્રોમો કોડ્સ
+              </div>
+              <div style={{ marginBottom: 16 }}>
+                {Object.keys(PROMO_CODES).map((code) => {
+                  const usedOrders = orders.filter((o) => o.promoCode === code);
+                  return (
+                    <div key={code} style={{ ...styles.orderCard, marginBottom: 8 }}>
+                      <div style={styles.orderTopRow}>
+                        <span style={{ fontWeight: 800, fontSize: 13, color: T.orange }}>{code}</span>
+                        <span style={styles.orderStatusTag}>{PROMO_CODES[code]}% · {usedOrders.length} વાર વપરાયો</span>
+                      </div>
+                      {usedOrders.length === 0 ? (
+                        <p style={{ color: "#a49c88", fontSize: 12, marginTop: 6 }}>હજુ કોઈએ આ કોડ વાપર્યો નથી.</p>
+                      ) : (
+                        <div style={{ marginTop: 6 }}>
+                          {usedOrders.map((o) => {
+                            const orderNumber = orders.length - orders.indexOf(o);
+                            return (
+                              <div key={o.id} style={{ fontSize: 12, color: "#2c2a26", padding: "4px 0", borderTop: `1px solid ${T.hairline}` }}>
+                                ઓર્ડર #{orderNumber} · {o.customer?.name} · -{formatRs(o.promoDiscountAmount || 0)}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
 
               <div style={styles.adminSectionTitle}>
                 <MessageSquare size={16} /> નવી પૂછપરછ ({enquiries.length})
@@ -3755,9 +3833,9 @@ export default function ApniDukanApp() {
                           <div style={{ fontSize: 10.5, color: "#a49c88", marginTop: 2 }}>{formatOrderDate(o.createdAt)}</div>
                           <div style={{ fontSize: 11, color: "#8a8378", marginTop: 4 }}>{o.customer.phone}</div>
                           <div style={{ fontSize: 11, color: "#8a8378", marginBottom: 4 }}>{o.customer.address}</div>
-                          {o.customer.referenceBy ? (
-                            <div style={{ fontSize: 11, color: T.orange, fontWeight: 700, marginBottom: 4 }}>
-                              📇 Reference: {o.customer.referenceBy}
+                          {o.promoCode ? (
+                            <div style={{ fontSize: 11, color: T.green, fontWeight: 700, marginBottom: 4 }}>
+                              🎟️ પ્રોમો: {o.promoCode} (-{formatRs(o.promoDiscountAmount || 0)})
                             </div>
                           ) : null}
                           <div style={{ fontSize: 12, color: "#2c2a26" }}>
