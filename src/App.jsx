@@ -8,6 +8,8 @@ import { initializeApp } from "firebase/app";
 import { getFirestore, doc, getDoc, setDoc, deleteDoc, onSnapshot, collection, getDocs, writeBatch } from "firebase/firestore";
 import { getMessaging, getToken, isSupported as isMessagingSupported } from "firebase/messaging";
 import { getAnalytics, logEvent } from "firebase/analytics";
+// ✅ VERCEL ANALYTICS - Real-time traffic monitoring
+import { Analytics } from "@vercel/analytics/react";
 
 const firebaseConfig = {
   apiKey: "AIzaSyC9oJrhtVRE91_fF8FHEWXbcBJnY-916Zc",
@@ -2796,6 +2798,8 @@ export default function ApniDukanApp() {
 
   return (
     <div style={styles.appShell} className="app-shell">
+      {/* ✅ VERCEL ANALYTICS - Tracks real-time visitor data & performance */}
+      <Analytics />
       <FallingLogoAdsOverlay />
       <DuckAnimation />
       <link rel="preconnect" href="https://fonts.googleapis.com" />
