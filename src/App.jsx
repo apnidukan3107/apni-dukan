@@ -5,7 +5,7 @@ import {
   Pencil, ImagePlus, Tag, MessageSquare, Download, Bell
 } from "lucide-react";
 import { initializeApp } from "firebase/app";
-import { getFirestore, doc, getDoc, setDoc, deleteDoc, onSnapshot, collection, getDocs, writeBatch } from "firebase/firestore";
+import { getFirestore, doc, getDoc, setDoc, deleteDoc, onSnapshot, collection, getDocs, writeBatch, increment } from "firebase/firestore";
 import { getMessaging, getToken, isSupported as isMessagingSupported } from "firebase/messaging";
 import { getAnalytics, logEvent } from "firebase/analytics";
 // ✅ VERCEL ANALYTICS - Real-time traffic monitoring
@@ -461,6 +461,15 @@ function storageListen(key, onChange) {
       console.error("storageListen error for", key, err);
     }
   );
+}
+
+// Tribute button press counter — atomic +1 so simultaneous presses never overwrite each other.
+async function bumpTributeCount() {
+  try {
+    await setDoc(doc(db, "store", "tributeCount"), { value: increment(1) }, { merge: true });
+  } catch (e) {
+    console.error("tribute count error", e);
+  }
 }
 
 const CATEGORIES_DEFAULT = ["Handtools", "Belt", "Oil Seal", "Safety Material", "બીજું", "Maintenance Products", "Pneumatic Fittings", "Nut Bolt N Washer"];
@@ -2352,13 +2361,18 @@ export default function ApniDukanApp() {
   const [checkoutForm, setCheckoutForm] = useState({ name: "", phone: "", address: "", pincode: "" });
   const [promoCodeInput, setPromoCodeInput] = useState("");
   const [appliedPromoCode, setAppliedPromoCode] = useState(null);
+  const [tributeCount, setTributeCount] = useState(0);
+  useEffect(() => {
+    if (view !== "admin") return;
+    return storageListen("tributeCount", (v) => setTributeCount(Number(v) || 0));
+  }, [view]);
   const [promoError, setPromoError] = useState("");
   const [checkoutError, setCheckoutError] = useState("");
   // Pincodes eligible for free delivery regardless of order total.
   const FREE_DELIVERY_PINCODES = ["382345", "382330"];
   const PROMO_CODES = { NAVGHAN20: 20, KARAN20: 20, YASHIKA20: 20, SUBHASH20: 20, BHAGAT28: 72 };
   // Optional per-code rules. maxDiscount = cap in Rs, maxUses = total uses allowed (default 2), expires = ISO time.
-  const PROMO_RULES = { BHAGAT28: { maxDiscount: 100, maxUses: Infinity, expires: "2026-09-28T23:58:00+05:30" } };
+  const PROMO_RULES = { BHAGAT28: { maxDiscount: 100, maxUses: 10, expires: "2026-09-28T23:58:00+05:30" } };
   const promoMaxUses = (code) => (PROMO_RULES[code] && PROMO_RULES[code].maxUses !== undefined ? PROMO_RULES[code].maxUses : 2);
   const promoExpired = (code) => !!(PROMO_RULES[code] && PROMO_RULES[code].expires && Date.now() >= new Date(PROMO_RULES[code].expires).getTime());
   const isFreeDeliveryPincode = FREE_DELIVERY_PINCODES.includes(checkoutForm.pincode.trim());
@@ -3733,6 +3747,10 @@ export default function ApniDukanApp() {
                 {saving ? "અપડેટ થાય છે..." : "🪢 Belt કેટેગરી અપડેટ કરો (V Belt + Lifting Belt)"}
               </button>
 
+              <div style={{ ...styles.orderCard, marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontWeight: 800, fontSize: 13 }}>🙏 Tribute બટન દબાવ્યું</span>
+                <span style={{ fontWeight: 800, fontSize: 22, color: T.orange }}>{tributeCount} વાર</span>
+              </div>
               <div style={styles.adminSectionTitle}>
                 <Tag size={16} /> 🎟️ પ્રોમો કોડ્સ
               </div>
@@ -4763,6 +4781,7 @@ function SanskritMarquee() {
 const BHAGAT_SINGH_END = "2026-09-28T23:58:00+05:30";
 function BhagatSinghBanner() {
   const [visible, setVisible] = React.useState(() => Date.now() < new Date(BHAGAT_SINGH_END).getTime());
+  const [playing, setPlaying] = React.useState(false);
   React.useEffect(() => {
     if (!visible) return;
     const timer = setInterval(() => {
@@ -4776,17 +4795,47 @@ function BhagatSinghBanner() {
   if (!visible) return null;
 
   return (
-    <div
-      style={{
-        display: "block", position: "relative", borderRadius: 16, overflow: "hidden",
-        background: "#0f1420",
-      }}
-    >
-      <img
-        src={BHAGAT_SINGH_IMG}
-        alt="Shaheed Bhagat Singh"
-        style={{ width: "100%", height: "auto", display: "block" }}
-      />
+    <div>
+      <div
+        style={{
+          display: "block", position: "relative", borderRadius: 16, overflow: "hidden",
+          background: "#0f1420",
+        }}
+      >
+        {playing ? (
+          <video
+            src="/bhagat.mp4"
+            autoPlay
+            playsInline
+            controls
+            onEnded={() => setPlaying(false)}
+            style={{ width: "100%", aspectRatio: "3 / 2", display: "block", background: "#000" }}
+          />
+        ) : (
+          <img
+            src={BHAGAT_SINGH_IMG}
+            alt="Shaheed Bhagat Singh"
+            style={{ width: "100%", height: "auto", display: "block" }}
+          />
+        )}
+      </div>
+      <button
+        onClick={() => {
+          if (playing) {
+            setPlaying(false);
+          } else {
+            bumpTributeCount();
+            setPlaying(true);
+          }
+        }}
+        style={{
+          width: "100%", marginTop: 8, padding: "10px 14px", borderRadius: 12,
+          border: "none", background: playing ? "#5a5a5a" : "#d8531f", color: "#fff",
+          fontWeight: 800, fontSize: 14, cursor: "pointer",
+        }}
+      >
+        {playing ? "✕ વીડિયો બંધ કરો" : "🙏 Tribute"}
+      </button>
     </div>
   );
 }
