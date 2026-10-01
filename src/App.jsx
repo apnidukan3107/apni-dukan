@@ -472,6 +472,22 @@ async function bumpTributeCount() {
   }
 }
 
+// Gandhi Jayanti (MJ tribute) press counter — separate from the Bhagat Singh one, starts at 0.
+async function bumpMjTributeCount() {
+  try {
+    await setDoc(doc(db, "store", "mjTributeCount"), { value: increment(1) }, { merge: true });
+  } catch (e) {
+    console.error("mj tribute count error", e);
+  }
+}
+async function resetMjTributeCount() {
+  try {
+    await setDoc(doc(db, "store", "mjTributeCount"), { value: 0 });
+  } catch (e) {
+    console.error("mj tribute reset error", e);
+  }
+}
+
 const CATEGORIES_DEFAULT = ["Handtools", "Belt", "Oil Seal", "Safety Material", "બીજું", "Maintenance Products", "Pneumatic Fittings", "Nut Bolt N Washer"];
 const ADMIN_PIN = "1609";
 
@@ -2366,6 +2382,11 @@ export default function ApniDukanApp() {
     if (view !== "admin") return;
     return storageListen("tributeCount", (v) => setTributeCount(Number(v) || 0));
   }, [view]);
+  const [mjTributeCount, setMjTributeCount] = useState(0);
+  useEffect(() => {
+    if (view !== "admin") return;
+    return storageListen("mjTributeCount", (v) => setMjTributeCount(Number(v) || 0));
+  }, [view]);
   const [promoError, setPromoError] = useState("");
   const [checkoutError, setCheckoutError] = useState("");
   // Pincodes eligible for free delivery regardless of order total.
@@ -2935,7 +2956,7 @@ export default function ApniDukanApp() {
         {/* HOME */}
         {view === "home" && (
           <div style={styles.scrollArea}>
-            <BannerCarousel slides={[<BhagatSinghBanner key="bhagatsingh" />]} />
+            <BannerCarousel slides={[<MahatmaGandhiBanner key="mahatmagandhi" />]} />
             <SanskritMarquee />
             <ApkDownloadBanner />
             <IndependenceDayBanner />
@@ -3750,6 +3771,18 @@ export default function ApniDukanApp() {
               <div style={{ ...styles.orderCard, marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span style={{ fontWeight: 800, fontSize: 13 }}>🙏 Tribute બટન દબાવ્યું</span>
                 <span style={{ fontWeight: 800, fontSize: 22, color: T.orange }}>{tributeCount} વાર</span>
+              </div>
+              <div style={{ ...styles.orderCard, marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                <span style={{ fontWeight: 800, fontSize: 13 }}>🙏 Tribute (MJ) બટન દબાવ્યું</span>
+                <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ fontWeight: 800, fontSize: 22, color: T.orange }}>{mjTributeCount} વાર</span>
+                  <button
+                    style={{ border: `1px solid ${T.hairline}`, background: "transparent", borderRadius: 8, padding: "4px 8px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}
+                    onClick={() => { if (window.confirm("Count 0 કરવો છે?")) resetMjTributeCount(); }}
+                  >
+                    0 કરો
+                  </button>
+                </span>
               </div>
               <div style={styles.adminSectionTitle}>
                 <Tag size={16} /> 🎟️ પ્રોમો કોડ્સ
@@ -4779,6 +4812,64 @@ function SanskritMarquee() {
 /* Shaheed Bhagat Singh birth anniversary banner — replaces the Aluminium
    Bharat slide. Single photo only. Auto-hides at 23:58 IST on 28 Sept 2026. */
 const BHAGAT_SINGH_END = "2026-09-28T23:58:00+05:30";
+/* Gandhi Jayanti poster — the "Play Best Tribute" button drawn inside the
+   poster image is made clickable with a transparent hotspot. Tapping it bumps
+   the admin counter and plays /mj.mp4 (from the public folder).
+   Poster image: put it at public/gandhi-poster.png */
+function MahatmaGandhiBanner() {
+  const [playing, setPlaying] = React.useState(false);
+  return (
+    <div>
+      <div
+        style={{
+          position: "relative", borderRadius: 16, overflow: "hidden",
+          background: "#000", aspectRatio: "1080 / 608",
+        }}
+      >
+        {playing ? (
+          <video
+            src="/mj.mp4"
+            autoPlay
+            playsInline
+            controls
+            onEnded={() => setPlaying(false)}
+            style={{ width: "100%", height: "100%", display: "block", background: "#000", objectFit: "contain" }}
+          />
+        ) : (
+          <>
+            <img
+              src="/gandhi-poster.png"
+              alt="Mahatma Gandhi - A Global Tribute"
+              style={{ width: "100%", height: "100%", display: "block", objectFit: "cover" }}
+            />
+            <button
+              aria-label="Play Best Tribute"
+              onClick={() => { bumpMjTributeCount(); setPlaying(true); }}
+              style={{
+                position: "absolute", left: "28.2%", top: "82.7%", width: "43.5%", height: "9.9%",
+                border: "none", borderRadius: 999, background: "transparent", cursor: "pointer",
+                WebkitTapHighlightColor: "rgba(255,255,255,0.35)",
+              }}
+            />
+          </>
+        )}
+      </div>
+      {playing && (
+        <button
+          onClick={() => setPlaying(false)}
+          style={{
+            width: "100%", marginTop: 8, padding: "10px 14px", borderRadius: 12,
+            border: "none", background: "#5a5a5a", color: "#fff",
+            fontWeight: 800, fontSize: 14, cursor: "pointer",
+          }}
+        >
+          ✕ વીડિયો બંધ કરો
+        </button>
+      )}
+    </div>
+  );
+}
+
 function BhagatSinghBanner() {
   const [visible, setVisible] = React.useState(() => Date.now() < new Date(BHAGAT_SINGH_END).getTime());
   const [playing, setPlaying] = React.useState(false);
