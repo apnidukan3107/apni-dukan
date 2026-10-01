@@ -4828,31 +4828,7 @@ function MahatmaGandhiBanner() {
           background: "#000", aspectRatio: "1080 / 608",
         }}
       >
-        <img
-          src={GANDHI_POSTER_IMG}
-          alt="Mahatma Gandhi - A Global Tribute"
-          style={{ width: "100%", height: "100%", display: "block", objectFit: "cover" }}
-        />
-        <button
-          aria-label="Play Best Tribute"
-          onClick={() => { bumpMjTributeCount(); setPlaying(true); }}
-          style={{
-            position: "absolute", left: "28.2%", top: "82.7%", width: "43.5%", height: "9.9%",
-            border: "none", borderRadius: 999, background: "transparent", cursor: "pointer",
-            WebkitTapHighlightColor: "rgba(255,255,255,0.35)",
-          }}
-        />
-      </div>
-      {playing && (
-        /* Big player: covers the whole screen down to the walking duck strip
-           (110px at the bottom, zIndex 9998 so the duck stays visible). */
-        <div
-          style={{
-            position: "fixed", top: 0, bottom: 110, left: "50%", transform: "translateX(-50%)",
-            width: "100%", maxWidth: 480, background: "#000", zIndex: 9997,
-            display: "flex", alignItems: "center", justifyContent: "center",
-          }}
-        >
+        {playing ? (
           <video
             src="/mj.mp4"
             autoPlay
@@ -4861,18 +4837,36 @@ function MahatmaGandhiBanner() {
             onEnded={() => setPlaying(false)}
             style={{ width: "100%", height: "100%", display: "block", background: "#000", objectFit: "contain" }}
           />
-          <button
-            onClick={() => setPlaying(false)}
-            aria-label="બંધ કરો"
-            style={{
-              position: "absolute", top: 12, right: 12, width: 40, height: 40, borderRadius: "50%",
-              border: "none", background: "rgba(0,0,0,0.65)", color: "#fff",
-              fontSize: 20, fontWeight: 800, cursor: "pointer", zIndex: 2,
-            }}
-          >
-            ✕
-          </button>
-        </div>
+        ) : (
+          <>
+            <img
+              src={GANDHI_POSTER_IMG}
+              alt="Mahatma Gandhi - A Global Tribute"
+              style={{ width: "100%", height: "100%", display: "block", objectFit: "cover" }}
+            />
+            <button
+              aria-label="Play Best Tribute"
+              onClick={() => { bumpMjTributeCount(); setPlaying(true); }}
+              style={{
+                position: "absolute", left: "28.2%", top: "82.7%", width: "43.5%", height: "9.9%",
+                border: "none", borderRadius: 999, background: "transparent", cursor: "pointer",
+                WebkitTapHighlightColor: "rgba(255,255,255,0.35)",
+              }}
+            />
+          </>
+        )}
+      </div>
+      {playing && (
+        <button
+          onClick={() => setPlaying(false)}
+          style={{
+            width: "100%", marginTop: 8, padding: "10px 14px", borderRadius: 12,
+            border: "none", background: "#5a5a5a", color: "#fff",
+            fontWeight: 800, fontSize: 14, cursor: "pointer",
+          }}
+        >
+          ✕ વીડિયો બંધ કરો
+        </button>
       )}
     </div>
   );
