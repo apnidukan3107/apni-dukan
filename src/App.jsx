@@ -2391,11 +2391,35 @@ export default function ApniDukanApp() {
   const [checkoutError, setCheckoutError] = useState("");
   // Pincodes eligible for free delivery regardless of order total.
   const FREE_DELIVERY_PINCODES = ["382345", "382330"];
-  const PROMO_CODES = { NAVGHAN20: 20, KARAN20: 20, YASHIKA20: 20, SUBHASH20: 20, BHAGAT28: 72 };
+  const PROMO_CODES = { NAVGHAN20: 20, KARAN20: 20, YASHIKA20: 20, SUBHASH20: 20, BHAGAT28: 72, MAHATMA100: 100 };
   // Optional per-code rules. maxDiscount = cap in Rs, maxUses = total uses allowed (default 2), expires = ISO time.
-  const PROMO_RULES = { BHAGAT28: { maxDiscount: 100, maxUses: 10, expires: "2026-09-28T23:58:00+05:30" } };
+  const PROMO_RULES = {
+    BHAGAT28: { maxDiscount: 100, maxUses: 10, expires: "2026-09-28T23:58:00+05:30" },
+    // MAHATMA100 = 100% off, but ONLY on Tata Salt 1kg from the Grocery category (max 1 pack per order).
+    MAHATMA100: { category: "grocer", nameHas: ["tata", "salt", "1kg"], maxUnits: 1, onlyMsg: "આ કોડ ફક્ત Grocery ના Tata Salt 1kg માટે છે." },
+  };
   const promoMaxUses = (code) => (PROMO_RULES[code] && PROMO_RULES[code].maxUses !== undefined ? PROMO_RULES[code].maxUses : 2);
   const promoExpired = (code) => !!(PROMO_RULES[code] && PROMO_RULES[code].expires && Date.now() >= new Date(PROMO_RULES[code].expires).getTime());
+  // Items eligible for item-specific promo codes (category + name match). Codes without "nameHas" apply to the whole cart.
+  const promoItemMatches = (code, item) => {
+    const r = PROMO_RULES[code];
+    if (!r || !r.nameHas) return true;
+    const cat = (item.category || "").trim().toLowerCase();
+    const nm = (item.name || "").toLowerCase().replace(/\s+/g, "");
+    return cat.startsWith(r.category || "") && r.nameHas.every((w) => nm.includes(w));
+  };
+  const promoEligibleSubtotal = (code) => {
+    const r = PROMO_RULES[code];
+    if (!r || !r.nameHas) return cartTotal;
+    return cartItems
+      .filter((i) => promoItemMatches(code, i))
+      .reduce((sum, i) => sum + i.price * (r.maxUnits ? Math.min(i.qty, r.maxUnits) : i.qty), 0);
+  };
+  const promoNotEligibleMsg = (code) => {
+    const r = PROMO_RULES[code];
+    if (r && r.nameHas && promoEligibleSubtotal(code) <= 0) return r.onlyMsg || "આ કોડ આ કાર્ટ માટે લાગુ પડતો નથી.";
+    return "";
+  };
   const isFreeDeliveryPincode = FREE_DELIVERY_PINCODES.includes(checkoutForm.pincode.trim());
   // "no-bill" = direct order, no GST. "with-bill" = proper GST bill, 18% added.
   const [billOption, setBillOption] = useState("no-bill");
@@ -2403,7 +2427,9 @@ export default function ApniDukanApp() {
   const deliveryFee = (cartTotal > 999 || isFreeDeliveryPincode) ? 0 : 49;
   const gstAmount = billOption === "with-bill" ? Math.round(cartTotal * 0.18) : 0;
   const promoDiscountPercent = appliedPromoCode ? PROMO_CODES[appliedPromoCode] || 0 : 0;
-  const promoDiscountRaw = Math.round((cartTotal + gstAmount) * (promoDiscountPercent / 100));
+  const promoBase = appliedPromoCode ? promoEligibleSubtotal(appliedPromoCode) : 0;
+  const promoBaseWithGst = billOption === "with-bill" ? promoBase + Math.round(promoBase * 0.18) : promoBase;
+  const promoDiscountRaw = Math.round(promoBaseWithGst * (promoDiscountPercent / 100));
   const promoCap = appliedPromoCode && PROMO_RULES[appliedPromoCode] ? PROMO_RULES[appliedPromoCode].maxDiscount : undefined;
   const promoDiscountAmount = promoCap !== undefined ? Math.min(promoDiscountRaw, promoCap) : promoDiscountRaw;
   const grandTotal = cartTotal + deliveryFee + gstAmount - promoDiscountAmount;
@@ -2422,6 +2448,12 @@ export default function ApniDukanApp() {
     const usedCount = orders.filter((o) => o.promoCode === code).length;
     if (usedCount >= promoMaxUses(code) || promoExpired(code)) {
       setPromoError("Sorry, its too late — this code has expired.");
+      setAppliedPromoCode(null);
+      return;
+    }
+    const notEligible = promoNotEligibleMsg(code);
+    if (notEligible) {
+      setPromoError(notEligible);
       setAppliedPromoCode(null);
       return;
     }
@@ -2452,6 +2484,12 @@ export default function ApniDukanApp() {
       const usedCount = orders.filter((o) => o.promoCode === appliedPromoCode).length;
       if (usedCount >= promoMaxUses(appliedPromoCode) || promoExpired(appliedPromoCode)) {
         setCheckoutError("Sorry, its too late — this code has expired.");
+        setAppliedPromoCode(null);
+        return;
+      }
+      const notEligible = promoNotEligibleMsg(appliedPromoCode);
+      if (notEligible) {
+        setCheckoutError(notEligible);
         setAppliedPromoCode(null);
         return;
       }
@@ -3500,6 +3538,9 @@ export default function ApniDukanApp() {
                       if (usedCount >= promoMaxUses(code) || promoExpired(code)) {
                         setAppliedPromoCode(null);
                         setPromoError("Sorry, its too late — this code has expired.");
+                      } else if (promoNotEligibleMsg(code)) {
+                        setAppliedPromoCode(null);
+                        setPromoError(promoNotEligibleMsg(code));
                       } else {
                         setAppliedPromoCode(code);
                         setPromoError("");
