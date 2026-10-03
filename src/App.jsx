@@ -10,6 +10,8 @@ import { getMessaging, getToken, isSupported as isMessagingSupported } from "fir
 import { getAnalytics, logEvent } from "firebase/analytics";
 // ✅ VERCEL ANALYTICS - Real-time traffic monitoring
 import { Analytics } from "@vercel/analytics/react";
+// ✅ PREMIUM LOGIN + WALLET
+import { useWallet, PremiumLoginButton, WalletPayBox, AdminCustomers } from "./PremiumWallet";
 
 const firebaseConfig = {
   apiKey: "AIzaSyC9oJrhtVRE91_fF8FHEWXbcBJnY-916Zc",
@@ -1870,6 +1872,8 @@ function groupOrdersByDate(orders) {
 export default function ApniDukanApp() {
   const [products, setProducts] = useState([]);
   const [orders, setOrders] = useState([]);
+  const w = useWallet(firebaseApp);
+  const [lastOrderPaid, setLastOrderPaid] = useState(false);
 
   // ---- admin dashboard stats, computed purely from existing orders data ----
   const dashboardStats = useMemo(() => {
@@ -2614,6 +2618,7 @@ export default function ApniDukanApp() {
       setOrders(nextOrders);
       setCart({});
       setLastOrderId(String(nextOrders.length));
+      setLastOrderPaid(false);
       setView("success");
       // Log a GA4 "purchase" event so revenue shows up in Analytics —
       // without this, GA never knows an order happened even though it's
@@ -2680,6 +2685,7 @@ export default function ApniDukanApp() {
       setOrders(nextOrders);
       setCart({});
       setLastOrderId(String(nextOrders.length));
+      setLastOrderPaid(false);
       setView("success");
       try {
         logEvent(analytics, "purchase", {
@@ -3066,6 +3072,11 @@ export default function ApniDukanApp() {
             {view === "admin" && <div style={styles.brand}>એડમિન પેનલ</div>}
             {view === "careers" && <div style={styles.brand}>કરિયર</div>}
           </div>
+          {view === "home" && (
+            <div style={{ display: "flex", justifyContent: "flex-end", padding: "8px 0 2px" }}>
+              <PremiumLoginButton w={w} />
+            </div>
+          )}
           {view === "home" && (
             <div style={styles.ecoSloganRow}>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
@@ -3772,6 +3783,54 @@ export default function ApniDukanApp() {
                   {saving ? "સેવ થાય છે..." : "ઓર્ડર કન્ફર્મ કરો"}
                 </button>
               </div>
+              <WalletPayBox
+                w={w}
+                cartItems={cartItems}
+                form={checkoutForm}
+                billOption={billOption}
+                gstNumber={gstNumber}
+                grandTotal={grandTotal}
+                promoApplied={!!appliedPromoCode}
+                onSuccess={(d) => {
+                  const nm = checkoutForm.name.trim();
+                  const ph = checkoutForm.phone.trim();
+                  try { localStorage.setItem("apniDukanMyPhone", ph); setMyPhone(ph); } catch {}
+                  setCart({});
+                  setLastOrderId(String(d.orderNumber || ""));
+                  setLastOrderPaid(true);
+                  setView("success");
+                  setCheckoutForm({ name: "", phone: "", address: "", pincode: "" });
+                  setAppliedPromoCode(null);
+                  setPromoCodeInput("");
+                  setBillOption("no-bill");
+                  setGstNumber("");
+                  try {
+                    fetch("/api/send-order-notification", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ orderId: d.orderId, customerName: nm, total: d.total }),
+                    }).catch(() => {});
+                  } catch {}
+                  try {
+                    fetch("https://api.emailjs.com/api/v1.0/email/send", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        service_id: "service_yg8sysc",
+                        template_id: "template_h01cv8i",
+                        user_id: "40etdMV1rISl5hS5f",
+                        template_params: {
+                          customer_name: nm,
+                          customer_phone: ph,
+                          customer_address: checkoutForm.address,
+                          total: formatRs(d.total) + " (વૉલેટ થી ચૂકવ્યા)",
+                          order_details: cartItems.map((i) => `${i.name} x${i.qty}`).join(", "),
+                        },
+                      }),
+                    }).catch(() => {});
+                  } catch {}
+                }}
+              />
             </div>
           </div>
         )}
@@ -3782,7 +3841,7 @@ export default function ApniDukanApp() {
             <div style={styles.successIcon}><Check size={36} color="#fff" /></div>
             <h2 style={{ color: "#2c2a26", margin: "16px 0 6px" }}>ઓર્ડર થઈ ગયો!</h2>
             <p style={{ color: "#8a8378", textAlign: "center", padding: "0 30px" }}>
-              ઓર્ડર નંબર: {lastOrderId}<br />ડિલિવરી વખતે કેશ ચૂકવો.
+              ઓર્ડર નંબર: {lastOrderId}<br />{lastOrderPaid ? "વૉલેટ થી ચૂકવણી થઈ ગઈ." : "ડિલિવરી વખતે કેશ ચૂકવો."}
             </p>
             <button style={styles.primaryBtn} onClick={() => setView("home")}>ખરીદી ચાલુ રાખો</button>
           </div>
@@ -3962,6 +4021,12 @@ export default function ApniDukanApp() {
         {view === "admin" && (
           <div style={styles.scrollArea}>
             <div style={{ padding: 16 }}>
+              <details style={{ marginBottom: 16 }}>
+                <summary style={{ fontWeight: 800, fontSize: 14, cursor: "pointer" }}>👑 Premium customers / Wallet</summary>
+                <div style={{ marginTop: 10 }}>
+                  <AdminCustomers />
+                </div>
+              </details>
               <button style={{ ...styles.primaryBtn, marginTop: 0, marginBottom: 16 }} onClick={importSeedCatalog} disabled={saving}>
                 {saving ? "લોડ થાય છે..." : "Taparia Handtools કેટલોગ લોડ/અપડેટ કરો"}
               </button>
