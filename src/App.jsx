@@ -156,6 +156,36 @@ async function enquirySave(enquiry) {
 async function enquiryDelete(id) {
   await deleteDoc(doc(db, "store", enquiryKey(id)));
 }
+
+// ---- Blog-writer job applications (Careers): same per-document pattern,
+// stored inside the existing "store" collection => no rules change needed. ----
+const APPLICATION_KEY_PREFIX = "application__";
+function applicationKey(id) {
+  return APPLICATION_KEY_PREFIX + id;
+}
+function applicationsListen(onChange) {
+  return onSnapshot(
+    collection(db, "store"),
+    (snap) => {
+      const list = snap.docs
+        .filter((d) => d.id.startsWith(APPLICATION_KEY_PREFIX))
+        .map((d) => {
+          const { type, ...fields } = d.data();
+          return { id: d.id.slice(APPLICATION_KEY_PREFIX.length), ...fields };
+        })
+        .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      onChange(list);
+    },
+    (err) => console.error("applicationsListen error", err)
+  );
+}
+async function applicationSave(app) {
+  const { id, ...rest } = app;
+  await setDoc(doc(db, "store", applicationKey(id)), { ...rest, type: "application" });
+}
+async function applicationDelete(id) {
+  await deleteDoc(doc(db, "store", applicationKey(id)));
+}
 // One-time migration: if no per-document products exist yet inside "store",
 // pull whatever exists in the legacy single-document blob (store/products)
 // and split it out into individual "product__<id>" documents. Safe to call
@@ -2280,6 +2310,58 @@ export default function ApniDukanApp() {
     return () => unsubscribe();
   }, []);
 
+  // ---- Careers (blog writer job) ----
+  const EMPTY_APP = { name: "", age: "", city: "", phone: "", level: "", lang: "", sample: "", about: "" };
+  const [appForm, setAppForm] = useState(EMPTY_APP);
+  const [appSubmitting, setAppSubmitting] = useState(false);
+  const [appSubmitted, setAppSubmitted] = useState(false);
+  const [appError, setAppError] = useState("");
+  const setAppField = (k, v) => setAppForm((f) => ({ ...f, [k]: v }));
+
+  const submitApplication = async () => {
+    const f = appForm;
+    const age = parseInt(f.age, 10);
+    if (!f.name.trim()) return setAppError("નામ લખો.");
+    if (!(age >= 14 && age < 25)) return setAppError("આ નોકરી ફક્ત 25 વર્ષથી ઓછી ઉંમર માટે છે.");
+    if (!f.city.trim()) return setAppError("શહેર / ગામ લખો.");
+    if (!/^[6-9]\d{9}$/.test(f.phone.trim())) return setAppError("સાચો 10 અંકનો WhatsApp નંબર લખો.");
+    if (!f.level) return setAppError("Experience પસંદ કરો.");
+    if (!f.lang) return setAppError("ભાષા પસંદ કરો.");
+    setAppError("");
+    setAppSubmitting(true);
+    try {
+      const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      await applicationSave({
+        id, name: f.name.trim(), age, city: f.city.trim(), phone: f.phone.trim(),
+        level: f.level, lang: f.lang, sample: f.sample.trim(), about: f.about.trim(),
+        createdAt: Date.now(), status: "નવી",
+      });
+      setAppForm(EMPTY_APP);
+      setAppSubmitted(true);
+    } catch (err) {
+      console.error("Application submit failed:", err);
+      setAppError("મોકલવામાં તકલીફ થઈ, ફરી પ્રયત્ન કરો.");
+    } finally {
+      setAppSubmitting(false);
+    }
+  };
+
+  const [applications, setApplications] = useState([]);
+  const firstApplicationsLoadRef = useRef(true);
+  const prevApplicationIdsRef = useRef(new Set());
+  useEffect(() => {
+    const unsubscribe = applicationsListen((list) => {
+      if (firstApplicationsLoadRef.current) {
+        firstApplicationsLoadRef.current = false;
+      } else if (list.some((a) => !prevApplicationIdsRef.current.has(a.id))) {
+        playOrderBeep();
+      }
+      prevApplicationIdsRef.current = new Set(list.map((a) => a.id));
+      setApplications(list);
+    });
+    return () => unsubscribe();
+  }, []);
+
   // Live enquiries — same real-time + notification pattern as orders, so
   // the admin finds out about a new "New Enquiry" submission immediately.
   const [enquiries, setEnquiries] = useState([]);
@@ -2975,6 +3057,7 @@ export default function ApniDukanApp() {
             {view === "checkout" && <div style={styles.brand}>ચેકઆઉટ</div>}
             {view === "adminLogin" && <div style={styles.brand}>એડમિન લોગિન</div>}
             {view === "admin" && <div style={styles.brand}>એડમિન પેનલ</div>}
+            {view === "careers" && <div style={styles.brand}>કરિયર</div>}
           </div>
           {view === "home" && (
             <div style={styles.ecoSloganRow}>
@@ -3291,9 +3374,107 @@ export default function ApniDukanApp() {
             </>
             )}
             <div style={{ padding: "18px 16px 28px", textAlign: "center", fontSize: 12, color: T.inkSoft, borderTop: `1px solid ${T.hairline}`, marginTop: 12 }}>
-              {[["/about.html", "અમારા વિશે"], ["/blog.html", "બ્લોગ"], ["/privacy.html", "પ્રાઇવસી પોલિસી"], ["/terms.html", "નિયમો અને શરતો"], ["/contact.html", "સંપર્ક"]].map(([href, label]) => (
-                <a key={href} href={href} style={{ color: T.inkSoft, margin: "0 6px", display: "inline-block", textDecoration: "underline" }}>{label}</a>
+              {[["/about.html", "અમારા વિશે"], ["/blog.html", "બ્લોગ"], ["#careers", "કરિયર"], ["/privacy.html", "પ્રાઇવસી પોલિસી"], ["/terms.html", "નિયમો અને શરતો"], ["/contact.html", "સંપર્ક"]].map(([href, label]) => (
+                <a
+                  key={href}
+                  href={href}
+                  onClick={href === "#careers" ? (ev) => { ev.preventDefault(); setAppSubmitted(false); setView("careers"); } : undefined}
+                  style={{ color: T.inkSoft, margin: "0 6px", display: "inline-block", textDecoration: "underline" }}
+                >{label}</a>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* CAREERS */}
+        {view === "careers" && (
+          <div style={styles.scrollArea}>
+            <div style={{ padding: "12px 16px 28px" }}>
+              <div style={{ background: T.orange, color: "#fff", borderRadius: 16, padding: "16px 14px", textAlign: "center", marginBottom: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 1 }}>WE ARE HIRING</div>
+                <div style={{ fontSize: 22, fontWeight: 800, marginTop: 2 }}>Blog Writers</div>
+                <div style={{ fontSize: 12.5, marginTop: 4, opacity: 0.95 }}>Freshers &amp; Experienced | Youth Below 25</div>
+                <div style={{ display: "inline-block", marginTop: 10, background: "#fff", color: T.orange, fontWeight: 800, fontSize: 18, padding: "6px 16px", borderRadius: 10 }}>₹100 per blog</div>
+              </div>
+
+              {appSubmitted ? (
+                <div style={{ background: T.greenLight, color: T.green, padding: "16px 14px", borderRadius: 12, fontSize: 14, fontWeight: 700, textAlign: "center" }}>
+                  🎉 અરજી મોકલાઈ ગઈ! અમે ટૂંક સમયમાં WhatsApp પર સંપર્ક કરીશું.
+                  <button style={{ ...styles.primaryBtn, marginTop: 14 }} onClick={() => setView("home")}>હોમ પર જાઓ</button>
+                </div>
+              ) : (
+                <>
+                <label style={{ fontSize: 12.5, color: T.inkSoft, fontWeight: 700, marginBottom: 6, display: "block" }}>તમારું પૂરું નામ</label>
+                <input type="text" value={appForm.name} maxLength={80} onChange={(e) => setAppField("name", e.target.value)} style={{
+                    width: "100%", boxSizing: "border-box",
+                    background: T.surface2, border: `1px solid ${T.hairline}`,
+                    borderRadius: 12, padding: "12px 14px", fontSize: 14.5,
+                    color: T.ink, fontFamily: "inherit", outline: "none", marginBottom: 14,
+                  }} />
+                <label style={{ fontSize: 12.5, color: T.inkSoft, fontWeight: 700, marginBottom: 6, display: "block" }}>ઉંમર (25 થી ઓછી)</label>
+                <input type="tel" inputMode="numeric" value={appForm.age} maxLength={2} onChange={(e) => setAppField("age", e.target.value.replace(/[^0-9]/g, ""))} style={{
+                    width: "100%", boxSizing: "border-box",
+                    background: T.surface2, border: `1px solid ${T.hairline}`,
+                    borderRadius: 12, padding: "12px 14px", fontSize: 14.5,
+                    color: T.ink, fontFamily: "inherit", outline: "none", marginBottom: 14,
+                  }} />
+                <label style={{ fontSize: 12.5, color: T.inkSoft, fontWeight: 700, marginBottom: 6, display: "block" }}>શહેર / ગામ</label>
+                <input type="text" value={appForm.city} maxLength={60} onChange={(e) => setAppField("city", e.target.value)} style={{
+                    width: "100%", boxSizing: "border-box",
+                    background: T.surface2, border: `1px solid ${T.hairline}`,
+                    borderRadius: 12, padding: "12px 14px", fontSize: 14.5,
+                    color: T.ink, fontFamily: "inherit", outline: "none", marginBottom: 14,
+                  }} />
+                <label style={{ fontSize: 12.5, color: T.inkSoft, fontWeight: 700, marginBottom: 6, display: "block" }}>WhatsApp નંબર</label>
+                <input type="tel" inputMode="numeric" value={appForm.phone} maxLength={10} placeholder="9XXXXXXXXX" onChange={(e) => setAppField("phone", e.target.value.replace(/[^0-9]/g, ""))} style={{
+                    width: "100%", boxSizing: "border-box",
+                    background: T.surface2, border: `1px solid ${T.hairline}`,
+                    borderRadius: 12, padding: "12px 14px", fontSize: 14.5,
+                    color: T.ink, fontFamily: "inherit", outline: "none", marginBottom: 14,
+                  }} />
+                <label style={{ fontSize: 12.5, color: T.inkSoft, fontWeight: 700, marginBottom: 6, display: "block" }}>Experience</label>
+                <select value={appForm.level} onChange={(e) => setAppField("level", e.target.value)} style={{
+                    width: "100%", boxSizing: "border-box",
+                    background: T.surface2, border: `1px solid ${T.hairline}`,
+                    borderRadius: 12, padding: "12px 14px", fontSize: 14.5,
+                    color: T.ink, fontFamily: "inherit", outline: "none", marginBottom: 14,
+                  }}>
+                  <option value="">પસંદ કરો</option>
+                  <option value="Fresher">Fresher</option>
+                  <option value="Experienced">Experienced</option>
+                </select>
+                <label style={{ fontSize: 12.5, color: T.inkSoft, fontWeight: 700, marginBottom: 6, display: "block" }}>કઈ ભાષામાં લખી શકો?</label>
+                <select value={appForm.lang} onChange={(e) => setAppField("lang", e.target.value)} style={{
+                    width: "100%", boxSizing: "border-box",
+                    background: T.surface2, border: `1px solid ${T.hairline}`,
+                    borderRadius: 12, padding: "12px 14px", fontSize: 14.5,
+                    color: T.ink, fontFamily: "inherit", outline: "none", marginBottom: 14,
+                  }}>
+                  <option value="">પસંદ કરો</option>
+                  {["ગુજરાતી", "હિન્દી", "English", "ગુજરાતી + હિન્દી", "ગુજરાતી + English", "બધી"].map((l) => <option key={l} value={l}>{l}</option>)}
+                </select>
+                <label style={{ fontSize: 12.5, color: T.inkSoft, fontWeight: 700, marginBottom: 6, display: "block" }}>Sample blog / work ની લિંક (ઓપ્શનલ)</label>
+                <input type="url" value={appForm.sample} maxLength={300} placeholder="https://..." onChange={(e) => setAppField("sample", e.target.value)} style={{
+                    width: "100%", boxSizing: "border-box",
+                    background: T.surface2, border: `1px solid ${T.hairline}`,
+                    borderRadius: 12, padding: "12px 14px", fontSize: 14.5,
+                    color: T.ink, fontFamily: "inherit", outline: "none", marginBottom: 14,
+                  }} />
+                <label style={{ fontSize: 12.5, color: T.inkSoft, fontWeight: 700, marginBottom: 6, display: "block" }}>તમારા વિશે થોડું લખો (ઓપ્શનલ)</label>
+                <textarea rows={4} value={appForm.about} maxLength={500} onChange={(e) => setAppField("about", e.target.value)} style={{ ...{
+                    width: "100%", boxSizing: "border-box",
+                    background: T.surface2, border: `1px solid ${T.hairline}`,
+                    borderRadius: 12, padding: "12px 14px", fontSize: 14.5,
+                    color: T.ink, fontFamily: "inherit", outline: "none", marginBottom: 14,
+                  }, resize: "vertical" }} />
+                {appError && (
+                  <div style={{ background: "#fdecec", color: "#b23b3b", padding: "10px 14px", borderRadius: 10, fontSize: 13, fontWeight: 700, marginBottom: 10 }}>{appError}</div>
+                )}
+                <button style={{ ...styles.primaryBtn, marginTop: 6 }} onClick={submitApplication} disabled={appSubmitting}>
+                  {appSubmitting ? "મોકલી રહ્યા છીએ..." : "અરજી કરો"}
+                </button>
+                </>
+              )}
             </div>
           </div>
         )}
@@ -3855,6 +4036,53 @@ export default function ApniDukanApp() {
                       onClick={() => {
                         if (window.confirm("આ પૂછપરછ ડિલીટ કરવી છે?")) enquiryDelete(e.id);
                       }}
+                      style={{ ...styles.statusBtn, color: "#b23b3b", borderColor: "#e3b8b8" }}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+
+              <div style={styles.adminSectionTitle}>
+                <ClipboardList size={16} /> બ્લોગ રાઇટર અરજીઓ ({applications.length})
+              </div>
+              {applications.length === 0 && <p style={{ color: "#a49c88", fontSize: 13 }}>હજુ કોઈ અરજી નથી.</p>}
+              {applications.map((a) => (
+                <div key={a.id} style={{ ...styles.orderCard, marginBottom: 10 }}>
+                  <div style={styles.orderTopRow}>
+                    <span style={{ fontWeight: 700, fontSize: 12 }}>
+                      {new Date(a.createdAt).toLocaleString("gu-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+                    </span>
+                    <span style={styles.orderStatusTag}>{a.status || "નવી"}</span>
+                  </div>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: T.ink, marginTop: 8 }}>
+                    {a.name} <span style={{ fontWeight: 600, color: T.inkSoft }}>({a.age} વર્ષ, {a.city})</span>
+                  </div>
+                  <div style={{ fontSize: 12.5, color: T.inkSoft, marginTop: 4 }}>{a.level} • {a.lang}</div>
+                  <a
+                    href={`https://wa.me/91${a.phone}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ display: "inline-block", marginTop: 6, color: T.green, fontWeight: 700, fontSize: 13, textDecoration: "none" }}
+                  >
+                    💬 WhatsApp: {a.phone}
+                  </a>
+                  <a href={`tel:${a.phone}`} style={{ marginLeft: 12, color: T.orange, fontWeight: 700, fontSize: 13, textDecoration: "none" }}>📞 કૉલ</a>
+                  {a.sample && (
+                    <div style={{ marginTop: 6, fontSize: 12.5 }}>
+                      <a href={a.sample} target="_blank" rel="noreferrer" style={{ color: T.orange, wordBreak: "break-all" }}>🔗 Sample: {a.sample}</a>
+                    </div>
+                  )}
+                  {a.about && <div style={{ fontSize: 13, color: T.ink, marginTop: 6, whiteSpace: "pre-wrap" }}>{a.about}</div>}
+                  <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                    {["સંપર્ક થયો", "પસંદ થયા", "નામંજૂર"].filter((st) => st !== a.status).map((st) => (
+                      <button key={st} onClick={() => applicationSave({ ...a, status: st })} style={{ ...styles.statusBtn, ...styles.statusBtnActive }}>
+                        {st}
+                      </button>
+                    ))}
+                    <button
+                      onClick={() => { if (window.confirm("આ અરજી ડિલીટ કરવી છે?")) applicationDelete(a.id); }}
                       style={{ ...styles.statusBtn, color: "#b23b3b", borderColor: "#e3b8b8" }}
                     >
                       <Trash2 size={13} />
