@@ -2004,7 +2004,14 @@ export default function ApniDukanApp() {
     });
     setView("cart");
   }
-  const [view, setView] = useState("home");
+  const [view, setView] = useState(() => {
+    // Direct link support: apnidukanse.in/?page=careers (or #careers)
+    try {
+      const q = new URLSearchParams(window.location.search).get("page");
+      if (q === "careers" || window.location.hash === "#careers") return "careers";
+    } catch {}
+    return "home";
+  });
   const [lastOrderId, setLastOrderId] = useState("");
 
   // admin
