@@ -6,7 +6,8 @@ const PRODUCT_PREFIX = "product__";             // store/product__<id>
 const ORDERS_DOC = "orders";                    // store/orders (value = JSON string)
 const FREE_DELIVERY_PINCODES = ["382345", "382330"];
 
-const SA = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || "{}");
+let SA = {};
+try { SA = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || "{}"); } catch (e) { SA = {}; }
 const PROJECT = SA.project_id;
 const DB = `projects/${PROJECT}/databases/(default)/documents`;
 const FS = `https://firestore.googleapis.com/v1/${DB}`;
@@ -335,14 +336,19 @@ async function pay(b) {
 
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
+  // Browser ma /api/wallet kholo to aa check dekhase (koi gupt vaat nathi dekhati)
+  if (req.method === "GET") {
+    return res.status(200).json({ api: "ok", serviceAccount: !!(PROJECT && SA.private_key), adminSecret: !!process.env.ADMIN_SECRET });
+  }
   if (req.method !== "POST") return res.status(405).json({ error: "POST_ONLY" });
   try {
-    if (!PROJECT) throw new Error("FIREBASE_SERVICE_ACCOUNT missing");
+    if (!PROJECT || !SA.private_key) throw new HttpError(500, "NO_SERVICE_ACCOUNT");
     const b = typeof req.body === "string" ? JSON.parse(req.body) : req.body || {};
     if (b.action === "pay") return res.status(200).json(await pay(b));
     if (b.action === "me") return res.status(200).json(await me(b));
     if (b.action === "login") return res.status(200).json(await login(b));
 
+    if (!process.env.ADMIN_SECRET) throw new HttpError(500, "NO_ADMIN_SECRET");
     if (!sameSecret(b.secret, process.env.ADMIN_SECRET)) {
       await new Promise((r) => setTimeout(r, 700));
       throw new HttpError(401, "ADMIN_ONLY");
