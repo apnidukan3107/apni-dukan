@@ -2977,6 +2977,17 @@ export default function ApniDukanApp() {
       <link rel="preconnect" href="https://fonts.googleapis.com" />
       <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Noto+Sans+Gujarati:wght@400;600;700;800&display=swap" rel="stylesheet" />
       <style>{`
+/* 🖥️ DESKTOP / WEB VIEW: moti screen par puri width, phone jevo frame nahi */
+@media (min-width:900px){
+  .app-shell{padding:0 !important;align-items:stretch !important;}
+  .phone-frame{width:100% !important;max-width:1240px !important;height:100vh !important;max-height:none !important;border:none !important;border-radius:0 !important;box-shadow:0 0 40px rgba(0,0,0,0.08) !important;}
+  .product-grid{grid-template-columns:repeat(auto-fill,minmax(210px,1fr)) !important;gap:18px !important;padding:0 28px 28px !important;}
+  .card-img{height:170px !important;}
+  .view-narrow{display:flex !important;flex-direction:column !important;align-items:center !important;}
+  .view-narrow > *{width:100% !important;max-width:760px !important;box-sizing:border-box;}
+  .view-narrow-box{width:100% !important;max-width:760px !important;margin-left:auto !important;margin-right:auto !important;box-sizing:border-box;}
+  .view-wide-box{width:100% !important;max-width:1100px !important;margin-left:auto !important;margin-right:auto !important;box-sizing:border-box;}
+}
 @media (max-width:480px){
   .app-shell{padding:0 !important;}
   .phone-frame{width:100% !important;height:100vh !important;max-height:none !important;border:none !important;border-radius:0 !important;box-shadow:none !important;}
@@ -3092,7 +3103,7 @@ export default function ApniDukanApp() {
 
         {/* HOME */}
         {view === "home" && (
-          <div style={styles.scrollArea}>
+          <div style={styles.scrollArea} className="scroll-area view-home">
             <SanskritMarquee />
             <ApkDownloadBanner />
             <IndependenceDayBanner />
@@ -3292,11 +3303,11 @@ export default function ApniDukanApp() {
               </div>
             ) : (
             <>
-            <div style={styles.grid}>
+            <div style={styles.grid} className="product-grid">
               {filtered.map((p) => (
                 <div key={p.id} style={styles.card}>
                   <div
-                    style={{ ...styles.cardImgWrap, cursor: resolveProductImage(p) ? "zoom-in" : "default" }}
+                    className="card-img" style={{ ...styles.cardImgWrap, cursor: resolveProductImage(p) ? "zoom-in" : "default" }}
                     onClick={() => { const img = resolveProductImage(p); if (img) setZoomImage({ src: img, name: p.name }); }}
                   >
                     {resolveProductImage(p) ? (
@@ -3406,7 +3417,7 @@ export default function ApniDukanApp() {
 
         {/* CAREERS */}
         {view === "careers" && (
-          <div style={styles.scrollArea}>
+          <div style={styles.scrollArea} className="scroll-area view-narrow">
             <div style={{ padding: "12px 16px 28px" }}>
               <div style={{ background: T.orange, color: "#fff", borderRadius: 16, padding: "16px 14px", textAlign: "center", marginBottom: 16 }}>
                 <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: 1 }}>WE ARE HIRING</div>
@@ -3499,7 +3510,7 @@ export default function ApniDukanApp() {
 
         {/* CART */}
         {view === "cart" && (
-          <div style={styles.scrollArea}>
+          <div style={styles.scrollArea} className="scroll-area view-narrow">
             {cartItems.length === 0 ? (
               <div style={styles.emptyCart}>
                 <ShoppingCart size={40} color="#c9c2b4" />
@@ -3652,7 +3663,7 @@ export default function ApniDukanApp() {
 
         {/* CHECKOUT */}
         {view === "checkout" && (
-          <div style={styles.scrollArea}>
+          <div style={styles.scrollArea} className="scroll-area view-narrow">
             <div style={{ padding: 16 }}>
               <label style={styles.label}>પૂરું નામ</label>
               <input
@@ -3849,7 +3860,7 @@ export default function ApniDukanApp() {
 
         {/* WISHLIST */}
         {view === "wishlist" && (
-          <div style={{ padding: 16 }}>
+          <div style={{ padding: 16 }} className="view-wide-box">
             <button
               onClick={() => setView("home")}
               style={{ background: "none", border: "none", display: "flex", alignItems: "center", gap: 6, color: T.inkSoft, fontSize: 13, fontWeight: 700, marginBottom: 14, cursor: "pointer" }}
@@ -3862,11 +3873,11 @@ export default function ApniDukanApp() {
                 હજુ કંઈ પસંદ કર્યું નથી. પ્રોડક્ટ પર 🤍 ટેપ કરો.
               </div>
             ) : (
-              <div style={styles.grid}>
+              <div style={styles.grid} className="product-grid">
                 {products.filter((p) => wishlist.includes(p.id)).map((p) => (
                   <div key={p.id} style={styles.card}>
                     <div
-                      style={{ ...styles.cardImgWrap, cursor: resolveProductImage(p) ? "zoom-in" : "default" }}
+                      className="card-img" style={{ ...styles.cardImgWrap, cursor: resolveProductImage(p) ? "zoom-in" : "default" }}
                       onClick={() => { const img = resolveProductImage(p); if (img) setZoomImage({ src: img, name: p.name }); }}
                     >
                       {resolveProductImage(p) ? (
@@ -3907,7 +3918,7 @@ export default function ApniDukanApp() {
 
         {/* MY ORDERS — tracking + repeat order */}
         {view === "myOrders" && (
-          <div style={{ padding: 16 }}>
+          <div style={{ padding: 16 }} className="view-narrow-box">
             <button
               onClick={() => setView("home")}
               style={{ background: "none", border: "none", display: "flex", alignItems: "center", gap: 6, color: T.inkSoft, fontSize: 13, fontWeight: 700, marginBottom: 14, cursor: "pointer" }}
@@ -4019,7 +4030,7 @@ export default function ApniDukanApp() {
 
         {/* ADMIN PANEL */}
         {view === "admin" && (
-          <div style={styles.scrollArea}>
+          <div style={styles.scrollArea} className="scroll-area view-narrow">
             <div style={{ padding: 16 }}>
               <details style={{ marginBottom: 16 }}>
                 <summary style={{ fontWeight: 800, fontSize: 14, cursor: "pointer" }}>👑 Premium customers / Wallet</summary>
