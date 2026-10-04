@@ -341,6 +341,7 @@ export default async function handler(req, res) {
     return res.status(200).json({ api: "ok", serviceAccount: !!(PROJECT && SA.private_key), adminSecret: !!process.env.ADMIN_SECRET });
   }
   if (req.method !== "POST") return res.status(405).json({ error: "POST_ONLY" });
+  let adminOk = false;
   try {
     if (!PROJECT || !SA.private_key) throw new HttpError(500, "NO_SERVICE_ACCOUNT");
     const b = typeof req.body === "string" ? JSON.parse(req.body) : req.body || {};
@@ -353,6 +354,7 @@ export default async function handler(req, res) {
       await new Promise((r) => setTimeout(r, 700));
       throw new HttpError(401, "ADMIN_ONLY");
     }
+    adminOk = true;
     if (b.action === "create") return res.status(200).json(await createCustomer(b));
     if (b.action === "topup") return res.status(200).json(await topup(b));
     if (b.action === "reset") return res.status(200).json(await resetPassword(b));
@@ -361,6 +363,7 @@ export default async function handler(req, res) {
   } catch (e) {
     if (e instanceof HttpError) return res.status(e.status).json({ error: e.code, ...e.extra });
     console.error("wallet api error:", e.message);
-    return res.status(500).json({ error: "SERVER" });
+    // Admin ne j (secret sachi hoy to) asli karan dekhadiye
+    return res.status(500).json(adminOk ? { error: "SERVER", detail: String(e.message || "").slice(0, 220) } : { error: "SERVER" });
   }
 }
