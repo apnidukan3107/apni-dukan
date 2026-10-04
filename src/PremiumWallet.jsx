@@ -1,8 +1,19 @@
 import { useCallback, useEffect, useState } from "react";
 
 const TOKEN_KEY = "apniDukanWalletToken";
-const post = (body) =>
-  fetch("/api/wallet", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json());
+const post = async (body) => {
+  try {
+    const r = await fetch("/api/wallet", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    try { return await r.json(); } catch (e) { return { error: "NO_API" }; }
+  } catch (e) { return { error: "NETWORK" }; }
+};
+const apiErr = (e) => ({
+  NO_API: "Server (api/wallet) chalu nathi. Vercel ma wallet.js ane deployment check karo.",
+  NETWORK: "Internet check karo ane fari prayatna karo.",
+  NO_SERVICE_ACCOUNT: "Vercel ma FIREBASE_SERVICE_ACCOUNT nathi ke khotu chhe.",
+  NO_ADMIN_SECRET: "Vercel ma ADMIN_SECRET nathi, ke Redeploy baki chhe.",
+  SERVER: "Server ma gadbad chhe. Vercel Logs check karo.",
+}[e] || null);
 const rs = (n) => "₹" + (Math.round((Number(n) || 0) * 100) / 100).toLocaleString("en-IN");
 
 const C = {
@@ -68,7 +79,7 @@ export function PremiumLoginButton({ w }) {
         ? "ઘણા ખોટા પ્રયત્નો થયા, 15 મિનિટ પછી ફરી કરો"
         : e.code === "WRONG"
           ? "મોબાઇલ નંબર અથવા પાસવર્ડ ખોટો છે"
-          : "Login na thayu. Internet check karo ane fari prayatna karo");
+          : apiErr(e.code) || "Login na thayu. Fari prayatna karo");
     }
     setBusy(false);
   };
@@ -185,6 +196,8 @@ export function AdminCustomers() {
   };
   const errText = (e) => ({
     ADMIN_ONLY: "Admin key khotti chhe",
+    NO_API: apiErr("NO_API"), NETWORK: apiErr("NETWORK"), SERVER: apiErr("SERVER"),
+    NO_SERVICE_ACCOUNT: apiErr("NO_SERVICE_ACCOUNT"), NO_ADMIN_SECRET: apiErr("NO_ADMIN_SECRET"),
     MOBILE_EXISTS: "Aa mobile number thi customer pehla thi chhe",
     MOBILE_INVALID: "10 anka no mobile number lakho",
     PASSWORD_SHORT: "Password ochha ma ochha 6 akshar no rakho",
