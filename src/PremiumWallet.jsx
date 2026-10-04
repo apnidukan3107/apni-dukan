@@ -194,7 +194,7 @@ export function AdminCustomers() {
   const call = async (action, extra) => {
     return post({ action, secret, ...extra });
   };
-  const errText = (e) => ({
+  const errText = (e, d) => ({
     ADMIN_ONLY: "Admin key khotti chhe",
     NO_API: apiErr("NO_API"), NETWORK: apiErr("NETWORK"), SERVER: apiErr("SERVER"),
     NO_SERVICE_ACCOUNT: apiErr("NO_SERVICE_ACCOUNT"), NO_ADMIN_SECRET: apiErr("NO_ADMIN_SECRET"),
@@ -203,30 +203,30 @@ export function AdminCustomers() {
     PASSWORD_SHORT: "Password ochha ma ochha 6 akshar no rakho",
     NAME_REQUIRED: "Customer nu naam lakho",
     AMOUNT_INVALID: "Rakam sachi lakho",
-  }[e] || "Kai gadbad thai. Fari prayatna karo.");
+  }[e] || "Kai gadbad thai. Fari prayatna karo.") + (d && d.detail ? " [" + d.detail + "]" : "");
 
   const load = async () => {
     const d = await call("list");
-    if (d.ok) setList(d.customers); else setMsg({ bad: true, t: errText(d.error) });
+    if (d.ok) setList(d.customers); else setMsg({ bad: true, t: errText(d.error, d) });
   };
   const create = async () => {
     setBusy(true); setMsg(null);
     const d = await call("create", f);
     if (d.ok) { setMsg({ bad: false, t: "Customer bani gayo. Password customer ne aapi do, pachhi joi nahi shakay." }); setF({ name: "", mobile: "", password: "", amount: "0" }); load(); }
-    else setMsg({ bad: true, t: errText(d.error) });
+    else setMsg({ bad: true, t: errText(d.error, d) });
     setBusy(false);
   };
   const addMoney = async (c) => {
     const a = window.prompt(`${c.name} ne wallet ma ketla ₹ umerva chho?`);
     if (!a) return;
     const d = await call("topup", { uid: c.uid, amount: Number(a) });
-    if (d.ok) load(); else setMsg({ bad: true, t: errText(d.error) });
+    if (d.ok) load(); else setMsg({ bad: true, t: errText(d.error, d) });
   };
   const resetPw = async (c) => {
     const p = window.prompt(`${c.name} no navo password (ochha ma ochha 6 akshar):`);
     if (!p) return;
     const d = await call("reset", { uid: c.uid, password: p });
-    setMsg(d.ok ? { bad: false, t: "Password badlai gayo." } : { bad: true, t: errText(d.error) });
+    setMsg(d.ok ? { bad: false, t: "Password badlai gayo." } : { bad: true, t: errText(d.error, d) });
   };
   const set = (k) => (e) => { setF({ ...f, [k]: e.target.value }); setMsg(null); };
 
