@@ -2059,7 +2059,26 @@ export default function ApniDukanApp() {
         if (res && res.value) {
           const parsed = JSON.parse(res.value);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            setSellers(parsed);
+            // An earlier deploy may have saved sellers without a mobile
+            // field — backfill it from the defaults so mobile+PIN login
+            // keeps working, and save the fix back to Firestore.
+            let patched = false;
+            const merged = parsed.map((s) => {
+              if (!s.mobile) {
+                const def = DEFAULT_SELLERS.find((d) => d.id === s.id);
+                if (def) {
+                  patched = true;
+                  return { ...s, mobile: def.mobile };
+                }
+              }
+              return s;
+            });
+            setSellers(merged);
+            if (patched) {
+              try {
+                await storageSet("sellers", JSON.stringify(merged));
+              } catch {}
+            }
             return;
           }
         }
