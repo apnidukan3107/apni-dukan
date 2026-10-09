@@ -3217,9 +3217,9 @@ export default function ApniDukanApp() {
         {view === "home" && (
           <div style={styles.scrollArea} className="scroll-area view-home">
             <SanskritMarquee />
-            <ApkDownloadBanner />
             <IndependenceDayBanner />
             <HomeBannerTimer />
+            <ApkDownloadBanner />
             <AdStrip />
             <div style={styles.searchWrap}>
               <Search size={16} color="#8a8378" style={{ flexShrink: 0 }} />
