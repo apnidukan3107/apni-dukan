@@ -8,13 +8,20 @@
 
 const PROJECT_ID = "apni-dukan-b8e19";
 
-module.exports = async function handler(req, res) {
+// Bluetooth Print app needs a JSON OBJECT {"0":{...},"1":{...}}, not an array.
+const toObj = (arr) => {
+  const o = {};
+  arr.forEach((l, i) => (o[String(i)] = l));
+  return o;
+};
+
+export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Content-Type", "application/json; charset=utf-8");
 
   const orderId = req.query.id;
   if (!orderId) {
-    res.status(400).json([{ type: 0, content: "Order id missing", bold: 1, align: 1 }]);
+    res.status(200).json(toObj([{ type: 0, content: "Order id missing", bold: 1, align: 1 }]));
     return;
   }
 
@@ -40,7 +47,7 @@ module.exports = async function handler(req, res) {
     };
 
     if (!order) {
-      res.status(200).json([{ type: 0, content: "Order not found: " + orderId, bold: 1, align: 1 }]);
+      res.status(200).json(toObj([{ type: 0, content: "Order not found: " + orderId, bold: 1, align: 1 }]));
       return;
     }
 
@@ -95,8 +102,8 @@ module.exports = async function handler(req, res) {
     lines.push({ type: 0, content: " ", bold: 0, align: 0 });
     lines.push({ type: 0, content: " ", bold: 0, align: 0 });
 
-    res.status(200).json(lines);
+    res.status(200).json(toObj(lines));
   } catch (err) {
-    res.status(200).json([{ type: 0, content: "Print error: " + String((err && err.message) || err), bold: 1, align: 1 }]);
+    res.status(200).json(toObj([{ type: 0, content: "Print error: " + String((err && err.message) || err), bold: 1, align: 1 }]));
   }
-};
+}
