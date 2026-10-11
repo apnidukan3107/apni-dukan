@@ -2054,6 +2054,11 @@ export default function ApniDukanApp() {
   useEffect(() => {
     isAdminRef.current = isAdmin;
   }, [isAdmin]);
+
+  // Chrome blocks a custom-scheme app launch (my.bluetoothprint.scheme://)
+  // that isn't tied to a real tap — so a new order queues up here and shows
+  // a one-tap "🖨️ Print" banner instead of trying to auto-open silently.
+  const [printQueue, setPrintQueue] = useState([]);
   const [pinInput, setPinInput] = useState("");
   const [pinError, setPinError] = useState("");
   const [newProduct, setNewProduct] = useState({ name: "", category: "કપડાં", price: "", img: "🛍️", image: "", stock: "", sellerId: "" });
@@ -2514,10 +2519,12 @@ export default function ApniDukanApp() {
               } catch {}
             });
           }
-          // Auto-print only in the admin's own session — not every visitor's
-          // browser, since this listener runs for everyone on the site.
+          // Queue for a one-tap print (not auto-triggered) — only in the
+          // admin's own session, not every visitor's browser, since this
+          // listener runs for everyone on the site. Chrome requires a real
+          // tap before it will open the Thermer app via its custom scheme.
           if (isAdminRef.current) {
-            newOnes.forEach((o) => triggerBluetoothPrint(o.id));
+            setPrintQueue((q) => [...q, ...newOnes.map((o) => o.id)]);
           }
         }
       }
@@ -3250,6 +3257,25 @@ export default function ApniDukanApp() {
   100% { transform: translateX(-30px) rotate(-10.0deg); }
 }`}</style>
       <div style={styles.phoneFrame} className="phone-frame">
+        {/* ONE-TAP PRINT BANNER — Chrome won't auto-open Thermer without a
+            real tap, so this shows up over any screen until tapped. */}
+        {isAdmin && printQueue.length > 0 && (
+          <button
+            onClick={() => {
+              printQueue.forEach((id) => triggerBluetoothPrint(id));
+              setPrintQueue([]);
+            }}
+            style={{
+              position: "absolute", top: 8, left: 8, right: 8, zIndex: 999,
+              background: "#1F5C40", color: "#F2EFE4", border: "none", borderRadius: 12,
+              padding: "12px 14px", fontSize: 14, fontWeight: 700, cursor: "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+              boxShadow: "0 4px 14px rgba(0,0,0,0.3)",
+            }}
+          >
+            🖨️ {printQueue.length} નવો ઓર્ડર — Print કરવા ટેપ કરો
+          </button>
+        )}
         {/* TOP BAR */}
         <div style={styles.hazardStrip} />
         <div style={styles.topBar}>
@@ -5224,7 +5250,7 @@ const T = Date.now() < new Date(THEME_SWITCH_END_TIME).getTime() ? INDEPENDENCE_
 
 const styles = {
   appShell: { minHeight: "100vh", width: "100%", background: `radial-gradient(circle at 15% 0%, #e3e0d3 0%, transparent 45%), ${T.bg}`, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Noto Sans Gujarati','Segoe UI',sans-serif", padding: "12px 0" },
-  phoneFrame: { width: 390, maxWidth: "100%", height: 780, maxHeight: "95vh", background: T.surface, borderRadius: 28, overflow: "hidden", boxShadow: "0 20px 50px rgba(40,35,20,0.3)", display: "flex", flexDirection: "column", border: `6px solid ${T.ink}` },
+  phoneFrame: { width: 390, maxWidth: "100%", height: 780, maxHeight: "95vh", background: T.surface, borderRadius: 28, overflow: "hidden", boxShadow: "0 20px 50px rgba(40,35,20,0.3)", display: "flex", flexDirection: "column", border: `6px solid ${T.ink}`, position: "relative" },
   hazardStrip: { height: 6, flexShrink: 0, background: `repeating-linear-gradient(-45deg, ${T.orange}, ${T.orange} 10px, ${T.ink} 10px, ${T.ink} 20px)` },
   topBar: { background: `linear-gradient(180deg, ${T.greenLight}, ${T.greenLight2})`, padding: "14px 16px 12px", position: "relative", overflow: "hidden", flexShrink: 0 },
   topBarLeaf: { position: "absolute", right: -10, top: -10, width: 130, height: 100, opacity: 0.85, pointerEvents: "none" },
