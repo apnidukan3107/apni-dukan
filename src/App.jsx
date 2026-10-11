@@ -1821,6 +1821,24 @@ function uid(prefix) {
 }
 
 // Plays a short beep using Web Audio API — no external sound file needed.
+// Automatically hands a new order to the admin's "Bluetooth Print" / Thermer
+// app via its my.bluetoothprint.scheme:// link. That app then fetches
+// /api/print-order?id=... itself and prints the JSON it gets back — no tap
+// needed, as long as the admin's phone has the app installed with Browser
+// Print enabled and the 58mm printer connected.
+function triggerBluetoothPrint(orderId) {
+  try {
+    const responseUrl = `${window.location.origin}/api/print-order?id=${encodeURIComponent(orderId)}`;
+    const schemeUrl = `my.bluetoothprint.scheme://${responseUrl}`;
+    const a = document.createElement("a");
+    a.href = schemeUrl;
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  } catch {}
+}
+
 function playOrderBeep() {
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -2030,6 +2048,12 @@ export default function ApniDukanApp() {
 
   // admin
   const [isAdmin, setIsAdmin] = useState(false);
+  // Kept in sync below so the orders listener (subscribed once on mount)
+  // always sees the current admin state without re-subscribing.
+  const isAdminRef = useRef(false);
+  useEffect(() => {
+    isAdminRef.current = isAdmin;
+  }, [isAdmin]);
   const [pinInput, setPinInput] = useState("");
   const [pinError, setPinError] = useState("");
   const [newProduct, setNewProduct] = useState({ name: "", category: "કપડાં", price: "", img: "🛍️", image: "", stock: "", sellerId: "" });
@@ -2489,6 +2513,11 @@ export default function ApniDukanApp() {
                 });
               } catch {}
             });
+          }
+          // Auto-print only in the admin's own session — not every visitor's
+          // browser, since this listener runs for everyone on the site.
+          if (isAdminRef.current) {
+            newOnes.forEach((o) => triggerBluetoothPrint(o.id));
           }
         }
       }
