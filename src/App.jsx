@@ -1826,9 +1826,32 @@ function uid(prefix) {
 // /api/print-order?id=... itself and prints the JSON it gets back — no tap
 // needed, as long as the admin's phone has the app installed with Browser
 // Print enabled and the 58mm printer connected.
-function triggerBluetoothPrint(orderId) {
+// Order data is embedded in the print link (param "d"), so printing works even
+// when Firestore quota is exhausted. /api/print-order falls back to Firestore
+// only when "d" is missing.
+function buildPrintPayload(order, orderNumber, sellers) {
+  const asc = (v) => String(v == null ? "" : v).replace(/[^\x20-\x7E]/g, "").trim();
+  const sellerList = Array.isArray(sellers) ? sellers : [];
+  const payload = {
+    id: order.id,
+    no: orderNumber != null ? orderNumber : "",
+    c: order.createdAt || "",
+    n: asc(order.customer && order.customer.name),
+    ph: asc(order.customer && order.customer.phone),
+    ad: asc(order.customer && order.customer.address),
+    t: order.total || 0,
+    it: (order.items || []).map((i) => {
+      const sel = i.sellerId ? sellerList.find((x) => x.id === i.sellerId) : null;
+      return { n: asc(i.name), q: i.qty || 1, p: i.price || 0, s: sel ? asc(sel.name) : "" };
+    }),
+  };
+  return btoa(JSON.stringify(payload)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function triggerBluetoothPrint(orderId, order, orderNumber, sellers) {
   try {
-    const responseUrl = `${window.location.origin}/api/print-order?id=${encodeURIComponent(orderId)}`;
+    let responseUrl = `${window.location.origin}/api/print-order?id=${encodeURIComponent(orderId)}`;
+    if (order) responseUrl += `&d=${buildPrintPayload(order, orderNumber, sellers)}`;
     const schemeUrl = `my.bluetoothprint.scheme://${responseUrl}`;
     const a = document.createElement("a");
     a.href = schemeUrl;
@@ -2683,16 +2706,6 @@ export default function ApniDukanApp() {
   const [checkoutForm, setCheckoutForm] = useState({ name: "", phone: "", address: "", pincode: "" });
   const [promoCodeInput, setPromoCodeInput] = useState("");
   const [appliedPromoCode, setAppliedPromoCode] = useState(null);
-  const [tributeCount, setTributeCount] = useState(0);
-  useEffect(() => {
-    if (view !== "admin") return;
-    return storageListen("tributeCount", (v) => setTributeCount(Number(v) || 0));
-  }, [view]);
-  const [mjTributeCount, setMjTributeCount] = useState(0);
-  useEffect(() => {
-    if (view !== "admin") return;
-    return storageListen("mjTributeCount", (v) => setMjTributeCount(Number(v) || 0));
-  }, [view]);
   const [promoError, setPromoError] = useState("");
   const [checkoutError, setCheckoutError] = useState("");
   // Pincodes eligible for free delivery regardless of order total.
@@ -3262,7 +3275,11 @@ export default function ApniDukanApp() {
         {isAdmin && printQueue.length > 0 && (
           <button
             onClick={() => {
-              printQueue.forEach((id) => triggerBluetoothPrint(id));
+              printQueue.forEach((id) => {
+                const ord = orders.find((x) => x.id === id);
+                const found = groupOrdersByDate(orders).flatMap((g) => g.items).find((x) => x.order.id === id);
+                triggerBluetoothPrint(id, ord, found ? found.orderNumber : undefined, sellers);
+              });
               setPrintQueue([]);
             }}
             style={{
@@ -4532,32 +4549,9 @@ export default function ApniDukanApp() {
                   </button>
                 </div>
               </details>
-              <button style={{ ...styles.primaryBtn, marginTop: 0, marginBottom: 16 }} onClick={importSeedCatalog} disabled={saving}>
-                {saving ? "લોડ થાય છે..." : "Taparia Handtools કેટલોગ લોડ/અપડેટ કરો"}
-              </button>
-              <button style={{ ...styles.primaryBtn, marginTop: 0, marginBottom: 16, background: "#6d4a9e" }} onClick={refreshBeltCategory} disabled={saving}>
-                {saving ? "અપડેટ થાય છે..." : "🪢 Belt કેટેગરી અપડેટ કરો (V Belt + Lifting Belt)"}
-              </button>
-
-              <div style={{ ...styles.orderCard, marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ fontWeight: 800, fontSize: 13 }}>🙏 Tribute બટન દબાવ્યું</span>
-                <span style={{ fontWeight: 800, fontSize: 22, color: T.orange }}>{tributeCount} વાર</span>
-              </div>
-              <div style={{ ...styles.orderCard, marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                <span style={{ fontWeight: 800, fontSize: 13 }}>🙏 Tribute (MJ) બટન દબાવ્યું</span>
-                <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ fontWeight: 800, fontSize: 22, color: T.orange }}>{mjTributeCount} વાર</span>
-                  <button
-                    style={{ border: `1px solid ${T.hairline}`, background: "transparent", borderRadius: 8, padding: "4px 8px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}
-                    onClick={() => { if (window.confirm("Count 0 કરવો છે?")) resetMjTributeCount(); }}
-                  >
-                    0 કરો
-                  </button>
-                </span>
-              </div>
-              <div style={styles.adminSectionTitle}>
-                <MessageSquare size={16} /> નવી પૂછપરછ ({enquiries.length})
-              </div>
+              <details style={{ marginBottom: 16 }}>
+                <summary style={{ fontWeight: 800, fontSize: 14, cursor: "pointer" }}>💬 નવી પૂછપરછ ({enquiries.length})</summary>
+                <div style={{ marginTop: 10 }}>
               {enquiries.length === 0 && <p style={{ color: "#a49c88", fontSize: 13 }}>હજુ કોઈ પૂછપરછ નથી.</p>}
               {enquiries.map((e) => (
                 <div key={e.id} style={{ ...styles.orderCard, marginBottom: 10 }}>
@@ -4620,10 +4614,12 @@ export default function ApniDukanApp() {
                   </div>
                 </div>
               ))}
+                </div>
+              </details>
 
-              <div style={styles.adminSectionTitle}>
-                <ClipboardList size={16} /> બ્લોગ રાઇટર અરજીઓ ({applications.length})
-              </div>
+              <details style={{ marginBottom: 16 }}>
+                <summary style={{ fontWeight: 800, fontSize: 14, cursor: "pointer" }}>📝 બ્લોગ રાઇટર અરજીઓ ({applications.length})</summary>
+                <div style={{ marginTop: 10 }}>
               {applications.length === 0 && <p style={{ color: "#a49c88", fontSize: 13 }}>હજુ કોઈ અરજી નથી.</p>}
               {applications.map((a) => (
                 <div key={a.id} style={{ ...styles.orderCard, marginBottom: 10 }}>
@@ -4667,8 +4663,12 @@ export default function ApniDukanApp() {
                   </div>
                 </div>
               ))}
+                </div>
+              </details>
 
-              <div style={styles.adminSectionTitle}><ClipboardList size={16} /> ઓર્ડર્સ ({orders.length})</div>
+              <details style={{ marginBottom: 16 }}>
+                <summary style={{ fontWeight: 800, fontSize: 14, cursor: "pointer" }}>📦 ઓર્ડર્સ ({orders.length})</summary>
+                <div style={{ marginTop: 10 }}>
               {orders.length === 0 && <p style={{ color: "#a49c88", fontSize: 13 }}>હજુ કોઈ ઓર્ડર નથી.</p>}
               {groupOrdersByDate(orders).map((group, groupIdx) => {
                 const defaultOpen = groupIdx === 0;
@@ -4724,15 +4724,26 @@ export default function ApniDukanApp() {
                             {o.items.map((i) => `${i.name} x${i.qty}`).join(", ")}
                           </div>
                           <div style={{ fontWeight: 800, fontSize: 13, margin: "4px 0" }}>{formatRs(o.total)}</div>
-                          <button
-                            onClick={() => downloadOrderPdf(o, orderNumber)}
-                            style={{
-                              display: "flex", alignItems: "center", gap: 6, background: T.green, color: "#fff",
-                              fontWeight: 800, fontSize: 11.5, padding: "6px 12px", borderRadius: 8, border: "none", marginBottom: 8,
-                            }}
-                          >
-                            📄 PDF ડાઉનલોડ કરો
-                          </button>
+                          <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+                            <button
+                              onClick={() => downloadOrderPdf(o, orderNumber)}
+                              style={{
+                                display: "flex", alignItems: "center", gap: 6, background: T.green, color: "#fff",
+                                fontWeight: 800, fontSize: 11.5, padding: "6px 12px", borderRadius: 8, border: "none",
+                              }}
+                            >
+                              📄 PDF ડાઉનલોડ કરો
+                            </button>
+                            <button
+                              onClick={() => triggerBluetoothPrint(o.id, o, orderNumber, sellers)}
+                              style={{
+                                display: "flex", alignItems: "center", gap: 6, background: "#185FA5", color: "#fff",
+                                fontWeight: 800, fontSize: 11.5, padding: "6px 12px", borderRadius: 8, border: "none",
+                              }}
+                            >
+                              🖨️ Print
+                            </button>
+                          </div>
                           <div style={styles.statusRow}>
                             {["નવો", "કન્ફર્મ", "ડિલિવર થયો"].map((s) => (
                               <button
@@ -4749,6 +4760,8 @@ export default function ApniDukanApp() {
                   </div>
                 );
               })}
+                </div>
+              </details>
 
               <div style={{ ...styles.adminSectionTitle, marginTop: 24 }}><Tag size={16} /> કેટેગરી મેનેજ કરો</div>
               <div style={{ display: "flex", gap: 8 }}>
