@@ -15,11 +15,72 @@ const toObj = (arr) => {
   return o;
 };
 
+// Order data embedded by App.jsx (param "d", base64url JSON) — no Firestore needed.
+function decodeEmbedded(d) {
+  try {
+    const b64 = String(d).replace(/-/g, "+").replace(/_/g, "/");
+    return JSON.parse(Buffer.from(b64, "base64").toString("utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function linesFromEmbedded(p) {
+  const lines = [];
+  lines.push({ type: 0, content: "Apni Dukan", bold: 1, align: 1, format: 3 });
+  lines.push({ type: 0, content: "apnidukanse.in", bold: 0, align: 1, format: 4 });
+  lines.push({ type: 0, content: " ", bold: 0, align: 0 });
+  const no = p.no !== "" && p.no != null ? p.no : String(p.id || "").slice(-4);
+  lines.push({ type: 0, content: "Order #" + no, bold: 1, align: 0 });
+  const dt = p.c ? new Date(p.c) : new Date();
+  lines.push({
+    type: 0,
+    content: dt.toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }),
+    bold: 0, align: 0, format: 4,
+  });
+  lines.push({ type: 0, content: "--------------------------------", bold: 0, align: 0 });
+  lines.push({ type: 0, content: p.n || "Customer", bold: 1, align: 0 });
+  if (p.ph) lines.push({ type: 0, content: p.ph, bold: 0, align: 0 });
+  if (p.ad) lines.push({ type: 0, content: p.ad, bold: 0, align: 0 });
+  lines.push({ type: 0, content: "--------------------------------", bold: 0, align: 0 });
+
+  const groups = {};
+  const order = [];
+  (p.it || []).forEach((it) => {
+    const key = it.s || "Apni Dukan";
+    if (!groups[key]) { groups[key] = []; order.push(key); }
+    groups[key].push(it);
+  });
+  order.forEach((key) => {
+    lines.push({ type: 0, content: `[ ${key} ]`, bold: 1, align: 0 });
+    groups[key].forEach((it) => {
+      const qty = it.q || 1;
+      lines.push({ type: 0, content: `  ${it.n} x${qty} = Rs.${(it.p || 0) * qty}`, bold: 0, align: 0 });
+    });
+  });
+
+  lines.push({ type: 0, content: "--------------------------------", bold: 0, align: 0 });
+  lines.push({ type: 0, content: "TOTAL: Rs." + (p.t || 0), bold: 1, align: 2, format: 1 });
+  lines.push({ type: 0, content: " ", bold: 0, align: 0 });
+  lines.push({ type: 0, content: "Thank you! Aavjo!", bold: 0, align: 1 });
+  lines.push({ type: 0, content: " ", bold: 0, align: 0 });
+  lines.push({ type: 0, content: " ", bold: 0, align: 0 });
+  return lines;
+}
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Content-Type", "application/json; charset=utf-8");
 
   const orderId = req.query.id;
+
+  if (req.query.d) {
+    const emb = decodeEmbedded(req.query.d);
+    if (emb && emb.it) {
+      res.status(200).json(toObj(linesFromEmbedded(emb)));
+      return;
+    }
+  }
   if (!orderId) {
     res.status(200).json(toObj([{ type: 0, content: "Order id missing", bold: 1, align: 1 }]));
     return;
@@ -32,6 +93,9 @@ export default async function handler(req, res) {
       fetch(`${base}/orders`),
       fetch(`${base}/sellers`),
     ]);
+    if (!ordersRes.ok) {
+      throw new Error("Firestore orders read failed: HTTP " + ordersRes.status);
+    }
     const ordersData = await ordersRes.json();
     const sellersData = await sellersRes.json();
 
