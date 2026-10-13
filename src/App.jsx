@@ -2649,6 +2649,30 @@ export default function ApniDukanApp() {
     return ["બધું", ...ordered, ...extra, ...extraCustom];
   }, [products, customCategories]);
 
+  // Direct category link support (for Google Ads etc.):
+  //   apnidukanse.in/?cat=last      -> opens the LAST category tab (Navratri)
+  //   apnidukanse.in/?cat=navratri  -> opens the category whose name contains "navratri"
+  // Applied once, after products have loaded.
+  const urlCatApplied = useRef(false);
+  useEffect(() => {
+    if (urlCatApplied.current || loading || products.length === 0) return;
+    urlCatApplied.current = true;
+    try {
+      const want = (new URLSearchParams(window.location.search).get("cat") || "").trim().toLowerCase();
+      if (!want) return;
+      const real = categories.filter((c) => c !== "બધું");
+      const match =
+        want === "last"
+          ? real[real.length - 1]
+          : real.find((c) => String(c).toLowerCase() === want) ||
+            real.find((c) => String(c).toLowerCase().includes(want));
+      if (match) {
+        setCategory(match);
+        setSubcategory("બધું");
+      }
+    } catch {}
+  }, [products, categories, loading]);
+
   // full list of category options for the admin add/edit-product dropdown
   const allCategoryOptions = useMemo(() => {
     const merged = new Set([...CATEGORIES_DEFAULT, ...customCategories, ...products.map((p) => p.category)]);
