@@ -4,11 +4,14 @@
 //   GET /api/print?action=done&id=ORDERID -> marks as printed
 //   GET /api/print?action=test            -> queues one sample bill (to test the printer)
 //   GET /api/print?action=reprint&n=70    -> prints admin order number 70 once more
+//   GET /api/print?action=statuspage      -> status page (open in the phone browser, add ?key=...)
+//   action=status | check | pcheck | fail  -> used by the status page and the ESP32
 //   GET /api/print?action=preview&id=ORDERID  (or id=sample) -> PNG preview in the browser
 // Auth: header "x-print-key" (or ?key=) must equal the PRINT_KEY env variable.
 import { getDb } from './_lib/firebase.mjs';
 import { renderBill, toEscPos, SAMPLE_ORDER } from './_lib/bill.mjs';
 import { FieldValue } from 'firebase-admin/firestore';
+import { buildStatus, STATUS_HTML } from './_lib/statuspage.mjs';
 
 async function loadOrders(db) {
   const snap = await db.collection('store').doc('orders').get();
@@ -25,17 +28,28 @@ export default async function handler(req, res) {
   const id = req.query.id ? String(req.query.id) : '';
 
   try {
+    if (action === 'statuspage') {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-store');
+      return res.status(200).send(STATUS_HTML);
+    }
+
     const db = getDb();
     const stateRef = db.collection('store').doc('printState');
 
     if (action === 'next') {
       const stSnap = await stateRef.get();
       const st = stSnap.exists ? stSnap.data() : {};
-      if (st.testPending) return res.status(200).json({ id: 'test', orderNumber: 0 });
+      const nowMs = Date.now();
+      if (!st.lastSeen || nowMs - Date.parse(st.lastSeen) > 60000) {
+        await stateRef.set({ lastSeen: new Date(nowMs).toISOString() }, { merge: true });   // at most one write per minute
+      }
+      const extra = st.checkRequested ? { check: true } : {};
+      if (st.testPending) return res.status(200).json({ id: 'test', orderNumber: 0, ...extra });
       if (!st.startAt) {
         // first run: only orders placed from now on will be printed
         await stateRef.set({ startAt: new Date().toISOString(), printedIds: [] }, { merge: true });
-        return res.status(200).json({ none: true, note: 'print start time set' });
+        return res.status(200).json({ none: true, note: 'print start time set', ...extra });
       }
       const printed = new Set(st.printedIds || []);
       const startMs = new Date(st.startAt).getTime();
@@ -46,7 +60,7 @@ export default async function handler(req, res) {
         if (!o.id || printed.has(o.id) || !(t >= startMs)) return;
         if (!pick || t < pick.t) pick = { id: o.id, t, orderNumber: orders.length - idx };
       });
-      return res.status(200).json(pick ? { id: pick.id, orderNumber: pick.orderNumber } : { none: true });
+      return res.status(200).json(pick ? { id: pick.id, orderNumber: pick.orderNumber, ...extra } : { none: true, ...extra });
     }
 
     if (action === 'job' || action === 'preview') {
@@ -71,9 +85,41 @@ export default async function handler(req, res) {
     }
 
     if (action === 'done') {
-      if (id === 'test') await stateRef.set({ testPending: false }, { merge: true });
-      else if (id) await stateRef.set({ printedIds: FieldValue.arrayUnion(id) }, { merge: true });
+      const ms = parseInt(String(req.query.ms || ''), 10);
+      const patch = { lastPrintedAt: new Date().toISOString(), lastPrintedId: id, lastPrintMs: Number.isFinite(ms) ? ms : null };
+      if (id === 'test') patch.testPending = false;
+      else if (id) patch.printedIds = FieldValue.arrayUnion(id);
+      await stateRef.set(patch, { merge: true });
       return res.status(200).json({ ok: true });
+    }
+
+    if (action === 'fail') {
+      // ESP32 could not print: remember why (at most one write per minute for the same reason)
+      const why = String(req.query.why || 'unknown').replace(/[^a-z0-9_-]/gi, '').slice(0, 40) || 'unknown';
+      const snap = await stateRef.get();
+      const st = snap.exists ? snap.data() : {};
+      const recent = st.lastFailAt && st.lastFailWhy === why && Date.now() - Date.parse(st.lastFailAt) < 60000;
+      const patch = recent ? {} : { lastFailAt: new Date().toISOString(), lastFailWhy: why, lastFailId: id };
+      if (id === 'test') patch.testPending = false;   // the test bill is one-shot: never let it block real orders
+      if (Object.keys(patch).length) await stateRef.set(patch, { merge: true });
+      return res.status(200).json({ ok: true });
+    }
+
+    if (action === 'check') {   // button on the status page -> ESP32 tests the printer connection
+      await stateRef.set({ checkRequested: true, checkRequestedAt: new Date().toISOString() }, { merge: true });
+      return res.status(200).json({ ok: true });
+    }
+
+    if (action === 'pcheck') {  // ESP32 reports the result of that test
+      await stateRef.set({ printerCheckAt: new Date().toISOString(), printerCheckOk: String(req.query.ok) === '1', checkRequested: false }, { merge: true });
+      return res.status(200).json({ ok: true });
+    }
+
+    if (action === 'status') {
+      const snap = await stateRef.get();
+      const orders = await loadOrders(db);
+      res.setHeader('Cache-Control', 'no-store');
+      return res.status(200).json(buildStatus(snap.exists ? snap.data() : {}, orders, Date.now()));
     }
 
     if (action === 'reprint') {
