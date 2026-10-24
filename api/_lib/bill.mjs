@@ -1,6 +1,7 @@
 // Renders an Apni Dukan order as a 58mm (384 dot) bitmap and converts it to ESC/POS raster bytes.
 import { createCanvas, GlobalFonts } from '@napi-rs/canvas';
 import { FONT_B64 } from './fonts.mjs';
+import { partyOf } from './parties.mjs';
 
 export const W = 384;            // 58mm printer = 384 dots
 const PAD = 6;
@@ -110,6 +111,16 @@ function paint(ctx, o, num) {
   dash();
   row(`ઓર્ડર #${num}`, dt.date, B, true);
   row(`સમય: ${dt.time}`, gst ? 'GST બિલ' : 'ડાયરેક્ટ ઓર્ડર', S, false);
+  // selling party: one line at the top if every item has the same party, otherwise a line under each item
+  const items = o.items || [];
+  const parties = items.map((it) => partyOf(it));
+  const known = parties.filter(Boolean);
+  const onePartyForAll = known.length > 0 && known.length === parties.length && known.every((x) => x === known[0]);
+  if (onePartyForAll) {
+    dash();
+    center('સેલિંગ પાર્ટી', S, false);
+    center(known[0], 30, true);
+  }
   dash();
   labelValue('નામ:', c.name || '', B);
   labelValue('ફોન:', c.phone || '', B);
@@ -117,11 +128,14 @@ function paint(ctx, o, num) {
   labelValue('પિનકોડ:', c.pincode || '', B);
   if (gst && o.gstNumber) labelValue('GST નં:', o.gstNumber, B);
   dash();
-  for (const it of (o.items || [])) {
+  items.forEach((it, idx) => {
     for (const l of wrap(it.name || '', B, CW)) { put(l, PAD, base(B), B, true, 'left'); y += lineH(B); }
+    if (!onePartyForAll && parties[idx]) {
+      for (const l of wrap(`સેલિંગ પાર્ટી: ${parties[idx]}`, S, CW - 12)) { put(l, PAD + 12, base(S), S, false, 'left'); y += lineH(S); }
+    }
     row(`${it.qty} × ${rs(it.price)}`, rs((it.qty || 0) * (it.price || 0)), B, false, 12);
     y += 4;
-  }
+  });
   dash();
   row('સબ ટોટલ', rs(o.subtotal), B, false);
   row('ડિલિવરી ચાર્જ', o.deliveryFee ? rs(o.deliveryFee) : 'મફત', B, false);
@@ -177,14 +191,14 @@ export function toEscPos(canvas) {
 export const SAMPLE_ORDER = {
   id: 'sample',
   items: [
-    { name: 'Hex Bolt (Size: 10mm)', price: 99, qty: 2 },
-    { name: 'Nut (Size: 8mm)', price: 99, qty: 1 },
+    { name: 'Ecodrive V-Belt A16', price: 79, qty: 2 },
+    { name: 'Ecodrive V-Belt A18', price: 93, qty: 1 },
   ],
-  subtotal: 297,
+  subtotal: 251,
   deliveryFee: 49,
   billOption: 'no-bill',
   gstAmount: 0,
-  total: 346,
+  total: 300,
   customer: { name: 'રમેશ પટેલ', phone: '9876543210', address: '12, શિવ સોસાયટી, નરોડા, અમદાવાદ', pincode: '382330' },
   payment: 'કેશ ઓન ડિલિવરી',
   createdAt: new Date().toISOString(),
