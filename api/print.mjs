@@ -3,6 +3,7 @@
 //   GET /api/print?action=job&id=ORDERID  -> ESC/POS bytes (bill as image)
 //   GET /api/print?action=done&id=ORDERID -> marks as printed
 //   GET /api/print?action=test            -> queues one sample bill (to test the printer)
+//   GET /api/print?action=reprint&n=70    -> prints admin order number 70 once more
 //   GET /api/print?action=preview&id=ORDERID  (or id=sample) -> PNG preview in the browser
 // Auth: header "x-print-key" (or ?key=) must equal the PRINT_KEY env variable.
 import { getDb } from './_lib/firebase.mjs';
@@ -73,6 +74,16 @@ export default async function handler(req, res) {
       if (id === 'test') await stateRef.set({ testPending: false }, { merge: true });
       else if (id) await stateRef.set({ printedIds: FieldValue.arrayUnion(id) }, { merge: true });
       return res.status(200).json({ ok: true });
+    }
+
+    if (action === 'reprint') {
+      // /api/print?action=reprint&n=70  -> prints admin-panel order number 70 once more
+      const n = parseInt(String(req.query.n || ''), 10);
+      const orders = await loadOrders(db);
+      const o = n >= 1 ? orders[orders.length - n] : null;
+      if (!o || !o.id) return res.status(404).json({ error: 'order number not found' });
+      await stateRef.set({ printedIds: FieldValue.arrayRemove(o.id) }, { merge: true });
+      return res.status(200).json({ ok: true, order: n, id: o.id, note: 'will print within ~10 seconds' });
     }
 
     if (action === 'test') {
