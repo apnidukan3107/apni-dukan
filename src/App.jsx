@@ -2668,6 +2668,9 @@ export default function ApniDukanApp() {
   const [applications, setApplications] = useState([]);
   const blogApps = applications.filter((a) => !a.job);
   const jobApps = applications.filter((a) => a.job);
+  // Serial numbers like orders: oldest = 1, newest = highest (list is sorted newest first).
+  const jobAppNo = (a) => jobApps.length - jobApps.findIndex((x) => x.id === a.id);
+  const blogAppNo = (a) => blogApps.length - blogApps.findIndex((x) => x.id === a.id);
   const firstApplicationsLoadRef = useRef(true);
   const prevApplicationIdsRef = useRef(new Set());
   useEffect(() => {
@@ -4615,9 +4618,9 @@ export default function ApniDukanApp() {
                   {pendingSellers.length === 0 && (
                     <div style={{ fontSize: 12, color: "#8a8378" }}>હાલમાં કોઈ નવી રજિસ્ટ્રેશન વિનંતી નથી.</div>
                   )}
-                  {pendingSellers.map((p) => (
+                  {pendingSellers.map((p, pi) => (
                     <div key={p.id} style={{ ...styles.orderCard, marginBottom: 8 }}>
-                      <div style={{ fontWeight: 800, fontSize: 13 }}>{p.shop}</div>
+                      <div style={{ fontWeight: 800, fontSize: 13 }}>રજિસ્ટ્રેશન #{pi + 1} · {p.shop}</div>
                       <div style={{ fontSize: 11, color: "#8a8378" }}>
                         {p.owner} · {p.mobile} · {p.category}
                         {p.area ? ` · ${p.area}` : ""}
@@ -4645,13 +4648,13 @@ export default function ApniDukanApp() {
               <details style={{ marginBottom: 16 }}>
                 <summary style={{ fontWeight: 800, fontSize: 14, cursor: "pointer" }}>🏪 Sellers</summary>
                 <div style={{ marginTop: 10 }}>
-                  {sellers.map((s) => (
+                  {sellers.map((s, si) => (
                     <div
                       key={s.id}
                       style={{ ...styles.orderCard, display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}
                     >
                       <div>
-                        <div style={{ fontWeight: 800, fontSize: 13 }}>{s.name}</div>
+                        <div style={{ fontWeight: 800, fontSize: 13 }}>સેલર #{si + 1} · {s.name}</div>
                         <div style={{ fontSize: 11, color: "#8a8378" }}>મોબાઇલ: {s.mobile || "—"} · PIN: {s.pin}</div>
                       </div>
                       <button
@@ -4779,7 +4782,7 @@ export default function ApniDukanApp() {
                   {jobApps.filter((a) => jobFilter === "બધી" || a.job === jobFilter).map((a) => (
                     <div key={a.id} style={{ ...styles.orderCard, marginBottom: 10 }}>
                       <div style={styles.orderTopRow}>
-                        <span style={{ fontWeight: 700, fontSize: 12 }}>{new Date(a.createdAt).toLocaleString("gu-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
+                        <span style={{ fontWeight: 700, fontSize: 12 }}>અરજી #{jobAppNo(a)} · {new Date(a.createdAt).toLocaleString("gu-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
                         <span style={styles.orderStatusTag}>{a.job}</span>
                       </div>
                       <div style={{ fontSize: 14, fontWeight: 800, color: T.ink, marginTop: 8 }}>{a.name}</div>
@@ -4805,7 +4808,7 @@ export default function ApniDukanApp() {
                 <div key={a.id} style={{ ...styles.orderCard, marginBottom: 10 }}>
                   <div style={styles.orderTopRow}>
                     <span style={{ fontWeight: 700, fontSize: 12 }}>
-                      {new Date(a.createdAt).toLocaleString("gu-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+                      અરજી #{blogAppNo(a)} · {new Date(a.createdAt).toLocaleString("gu-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
                     </span>
                     <span style={styles.orderStatusTag}>{a.status || "નવી"}</span>
                   </div>
