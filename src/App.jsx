@@ -5,7 +5,7 @@ import {
   Pencil, ImagePlus, Tag, MessageSquare, Download, Bell, Store
 } from "lucide-react";
 import { initializeApp } from "firebase/app";
-import { getFirestore, doc, getDoc, setDoc, deleteDoc, onSnapshot, collection, getDocs, writeBatch, increment } from "firebase/firestore";
+import { getFirestore, doc, getDoc, setDoc, deleteDoc, onSnapshot, collection, getDocs, writeBatch, increment, runTransaction } from "firebase/firestore";
 import { getMessaging, getToken, isSupported as isMessagingSupported } from "firebase/messaging";
 import { getAnalytics, logEvent } from "firebase/analytics";
 // ✅ VERCEL ANALYTICS - Real-time traffic monitoring
@@ -187,6 +187,24 @@ async function applicationSave(app) {
 }
 async function applicationDelete(id) {
   await deleteDoc(doc(db, "store", applicationKey(id)));
+}
+// Permanent serial numbers (job applications "job", seller registrations "sel"): +1 in one
+// atomic transaction so two people applying at the same moment never get the same number.
+// "floor" = how many already exist, used only the very first time the counter is created.
+async function nextSerial(kind, floor) {
+  const ref = doc(db, "store", "serialCounters");
+  return runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    const d = snap.exists() ? snap.data() : {};
+    const cur = d[kind] != null ? Number(d[kind]) || 0 : Number(floor) || 0;
+    tx.set(ref, { [kind]: cur + 1 }, { merge: true });
+    return cur + 1;
+  });
+}
+// Puts a slip in the printer queue (the ESP32 printer picks it up like an order).
+// Only changes the "queue" part of store/printState, nothing else in that doc.
+async function queuePrint(key, item) {
+  await setDoc(doc(db, "store", "printState"), { queue: { [key]: item } }, { merge: true });
 }
 // One-time migration: if no per-document products exist yet inside "store",
 // pull whatever exists in the legacy single-document blob (store/products)
@@ -2230,7 +2248,7 @@ export default function ApniDukanApp() {
     } catch {}
   }
 
-  function submitSellerRegistration() {
+  async function submitSellerRegistration() {
     const { shop, owner, mobile, category, area, pin } = regForm;
     if (!shop.trim() || !owner.trim() || !mobile.trim() || !category || !pin.trim()) {
       setRegError("બધી જરૂરી વિગત ભરો.");
@@ -2249,6 +2267,8 @@ export default function ApniDukanApp() {
       return;
     }
     setRegError("");
+    let no = 0;
+    try { no = await nextSerial("sel", pendingSellers.length); } catch (e) { console.error("serial no failed", e); }
     const entry = {
       id: uid("preg"),
       shop: shop.trim(),
@@ -2258,8 +2278,21 @@ export default function ApniDukanApp() {
       area: area.trim(),
       pin: pin.trim(),
       requestedAt: new Date().toISOString(),
+      ...(no ? { no } : {}),
     };
-    savePendingSellers([...pendingSellers, entry]);
+    // read the latest list first, so two registrations at the same time never overwrite each other
+    let baseList = pendingSellers;
+    try {
+      const r = await storageGet("pendingSellers");
+      if (r && r.value) { const parsed = JSON.parse(r.value); if (Array.isArray(parsed)) baseList = parsed; }
+    } catch {}
+    savePendingSellers([...baseList, entry]);
+    try {
+      await queuePrint("sr_" + entry.id, {
+        kind: "sel", no, t: Date.now(), shop: entry.shop, owner: entry.owner,
+        mobile: entry.mobile, category: entry.category, area: entry.area,
+      });
+    } catch (e) { console.error("print queue failed", e); }
     setRegSubmitted(true);
     setRegForm({ shop: "", owner: "", mobile: "", category: "", area: "", pin: "" });
   }
@@ -2653,11 +2686,20 @@ export default function ApniDukanApp() {
     setJobError(""); setJobSending(true);
     try {
       const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const createdAt = Date.now();
+      let no = 0;
+      try { no = await nextSerial("job", jobApps.length); } catch (e) { console.error("serial no failed", e); }
       await applicationSave({
         id, job: jobOpen, name: f.name.trim(), phone: f.phone.trim(),
         qualification: f.qualification, experience: f.experience,
-        createdAt: Date.now(), status: "નવી",
+        createdAt, status: "નવી", ...(no ? { no } : {}),
       });
+      try {
+        await queuePrint("ja_" + id, {
+          kind: "job", no, t: createdAt, job: jobOpen, name: f.name.trim(), phone: f.phone.trim(),
+          qualification: f.qualification, experience: f.experience,
+        });
+      } catch (e) { console.error("print queue failed", e); }
       setJobDone(true);
     } catch (err) {
       console.error("Job application failed:", err);
@@ -4620,7 +4662,7 @@ export default function ApniDukanApp() {
                   )}
                   {pendingSellers.map((p, pi) => (
                     <div key={p.id} style={{ ...styles.orderCard, marginBottom: 8 }}>
-                      <div style={{ fontWeight: 800, fontSize: 13 }}>રજિસ્ટ્રેશન #{pi + 1} · {p.shop}</div>
+                      <div style={{ fontWeight: 800, fontSize: 13 }}>રજિસ્ટ્રેશન #{p.no || pi + 1} · {p.shop}</div>
                       <div style={{ fontSize: 11, color: "#8a8378" }}>
                         {p.owner} · {p.mobile} · {p.category}
                         {p.area ? ` · ${p.area}` : ""}
@@ -4782,7 +4824,7 @@ export default function ApniDukanApp() {
                   {jobApps.filter((a) => jobFilter === "બધી" || a.job === jobFilter).map((a) => (
                     <div key={a.id} style={{ ...styles.orderCard, marginBottom: 10 }}>
                       <div style={styles.orderTopRow}>
-                        <span style={{ fontWeight: 700, fontSize: 12 }}>અરજી #{jobAppNo(a)} · {new Date(a.createdAt).toLocaleString("gu-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
+                        <span style={{ fontWeight: 700, fontSize: 12 }}>અરજી #{a.no || jobAppNo(a)} · {new Date(a.createdAt).toLocaleString("gu-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
                         <span style={styles.orderStatusTag}>{a.job}</span>
                       </div>
                       <div style={{ fontSize: 14, fontWeight: 800, color: T.ink, marginTop: 8 }}>{a.name}</div>
