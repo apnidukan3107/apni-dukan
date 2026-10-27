@@ -7,9 +7,11 @@
 //   GET /api/print?action=statuspage      -> status page (open in the phone browser, add ?key=...)
 //   action=status | check | pcheck | fail  -> used by the status page and the ESP32
 //   GET /api/print?action=preview&id=ORDERID  (or id=sample) -> PNG preview in the browser
+//   Job application / seller registration slips: queued by the app in printState.queue (ids ja_... / sr_...),
+//   preview with id=sample_job or id=sample_sel. They print in the same line as orders, oldest first.
 // Auth: header "x-print-key" (or ?key=) must equal the PRINT_KEY env variable.
 import { getDb } from './_lib/firebase.mjs';
-import { renderBill, toEscPos, SAMPLE_ORDER } from './_lib/bill.mjs';
+import { renderBill, renderSlip, toEscPos, SAMPLE_ORDER, SAMPLE_JOB, SAMPLE_SEL } from './_lib/bill.mjs';
 import { FieldValue } from 'firebase-admin/firestore';
 import { buildStatus, STATUS_HTML } from './_lib/statuspage.mjs';
 
@@ -60,7 +62,33 @@ export default async function handler(req, res) {
         if (!o.id || printed.has(o.id) || !(t >= startMs)) return;
         if (!pick || t < pick.t) pick = { id: o.id, t, orderNumber: orders.length - idx };
       });
+      // job application / seller registration slips waiting in the queue (same printState doc -> no extra read)
+      const queue = st.queue || {};
+      Object.entries(queue).forEach(([qid, it]) => {
+        if (!it || !(Number(it.t) > 0)) return;
+        if (!pick || it.t < pick.t) pick = { id: qid, t: it.t, orderNumber: it.no || 0 };
+      });
       return res.status(200).json(pick ? { id: pick.id, orderNumber: pick.orderNumber, ...extra } : { none: true, ...extra });
+    }
+
+    if ((action === 'job' || action === 'preview') && (/^(ja|sr)_[A-Za-z0-9_-]+$/.test(id) || id === 'sample_job' || id === 'sample_sel')) {
+      let item;
+      if (id === 'sample_job') item = { ...SAMPLE_JOB, t: Date.now() };
+      else if (id === 'sample_sel') item = { ...SAMPLE_SEL, t: Date.now() };
+      else {
+        const qs = await stateRef.get();
+        item = qs.exists ? (qs.data().queue || {})[id] : null;
+        if (!item) return res.status(404).json({ error: 'slip not found (already printed?)' });
+      }
+      const slip = renderSlip(item);
+      if (action === 'preview') {
+        res.setHeader('Content-Type', 'image/png');
+        return res.status(200).send(slip.toBuffer('image/png'));
+      }
+      const slipBytes = toEscPos(slip);
+      res.setHeader('Content-Type', 'application/octet-stream');
+      res.setHeader('Content-Length', String(slipBytes.length));
+      return res.status(200).send(slipBytes);
     }
 
     if (action === 'job' || action === 'preview') {
@@ -87,6 +115,11 @@ export default async function handler(req, res) {
     if (action === 'done') {
       const ms = parseInt(String(req.query.ms || ''), 10);
       const patch = { lastPrintedAt: new Date().toISOString(), lastPrintedId: id, lastPrintMs: Number.isFinite(ms) ? ms : null };
+      if (/^(ja|sr)_[A-Za-z0-9_-]+$/.test(id)) {
+        // printed slip: take it out of the queue
+        await stateRef.update({ ...patch, ['queue.' + id]: FieldValue.delete() });
+        return res.status(200).json({ ok: true });
+      }
       if (id === 'test') patch.testPending = false;
       else if (id) patch.printedIds = FieldValue.arrayUnion(id);
       await stateRef.set(patch, { merge: true });
