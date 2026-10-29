@@ -113,7 +113,7 @@ function paint(ctx, o, num) {
   row(`સમય: ${dt.time}`, gst ? 'GST બિલ' : 'ડાયરેક્ટ ઓર્ડર', S, false);
   // selling party: one line at the top if every item has the same party, otherwise a line under each item
   const items = o.items || [];
-  const parties = items.map((it) => partyOf(it));
+  const parties = items.map((it) => it.partyName || partyOf(it));   // partyName = seller name read from the sellers list (new sellers too)
   const known = parties.filter(Boolean);
   const onePartyForAll = known.length > 0 && known.length === parties.length && known.every((x) => x === known[0]);
   if (onePartyForAll) {
