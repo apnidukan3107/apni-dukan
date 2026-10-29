@@ -21,6 +21,18 @@ async function loadOrders(db) {
   try { return JSON.parse(snap.data().value) || []; } catch { return []; }
 }
 
+// seller id -> seller name, from the sellers list of the admin panel (so every new seller prints too)
+async function loadSellerNames(db) {
+  try {
+    const snap = await db.collection('store').doc('sellers').get();
+    if (!snap.exists) return {};
+    const list = JSON.parse(snap.data().value) || [];
+    const map = {};
+    for (const s of list) if (s && s.id && s.name) map[s.id] = String(s.name).toUpperCase();
+    return map;
+  } catch { return {}; }
+}
+
 export default async function handler(req, res) {
   const key = req.headers['x-print-key'] || req.query.key;
   if (!process.env.PRINT_KEY || key !== process.env.PRINT_KEY) {
@@ -101,6 +113,8 @@ export default async function handler(req, res) {
         if (idx < 0) return res.status(404).json({ error: 'order not found' });
         order = orders[idx]; num = orders.length - idx;
       }
+      const names = await loadSellerNames(db);
+      order = { ...order, items: (order.items || []).map((it) => ({ ...it, partyName: names[it.sellerId] || '' })) };
       const canvas = renderBill(order, num);
       if (action === 'preview') {
         res.setHeader('Content-Type', 'image/png');
