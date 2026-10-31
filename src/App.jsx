@@ -2250,6 +2250,12 @@ export default function ApniDukanApp() {
   const [sellerMsgText, setSellerMsgText] = useState("");
   const [sellerStockQuery, setSellerStockQuery] = useState("");
   const [payInputs, setPayInputs] = useState({});
+  const [replyInputs, setReplyInputs] = useState({});
+  const [sellerMsgSeenAt, setSellerMsgSeenAt] = useState(() => {
+    try { return localStorage.getItem("apniDukanSellerMsgSeen") || ""; } catch { return ""; }
+  });
+  const [calMonth, setCalMonth] = useState(() => { const d = new Date(); return { y: d.getFullYear(), m: d.getMonth() }; });
+  const [calSel, setCalSel] = useState("");
 
   useEffect(() => {
     (async () => {
@@ -2310,6 +2316,35 @@ export default function ApniDukanApp() {
   }
   async function deleteSellerMessage(id) {
     await updateStoredList("sellerMessages", sellerMessages, setSellerMessages, (l) => l.filter((m) => m.id !== id));
+  }
+  async function replyToSellerMessage(id) {
+    const text = (replyInputs[id] || "").trim();
+    if (!text) return;
+    setReplyInputs((prev) => ({ ...prev, [id]: "" }));
+    await updateStoredList("sellerMessages", sellerMessages, setSellerMessages, (l) =>
+      l.map((m) => (m.id === id ? { ...m, reply: text, repliedAt: new Date().toISOString(), done: true } : m))
+    );
+  }
+  // seller opens the message / hisab tab -> fetch the newest replies / payments
+  async function reloadSellerLists(which) {
+    const pair = which === "msg" ? ["sellerMessages", setSellerMessages] : ["sellerPayments", setSellerPayments];
+    try {
+      const res = await storageGet(pair[0]);
+      if (res && res.value) {
+        const parsed = JSON.parse(res.value);
+        if (Array.isArray(parsed)) pair[1](parsed);
+      }
+    } catch {}
+  }
+  function openSellerTab(key) {
+    setSellerTab(key);
+    if (key === "msg") {
+      reloadSellerLists("msg");
+      const nowIso = new Date().toISOString();
+      setSellerMsgSeenAt(nowIso);
+      try { localStorage.setItem("apniDukanSellerMsgSeen", nowIso); } catch {}
+    }
+    if (key === "hisab") reloadSellerLists("hisab");
   }
   async function addSellerPayment(sid) {
     const inp = payInputs[sid] || {};
@@ -4719,6 +4754,7 @@ export default function ApniDukanApp() {
           const hisab = sellerHisab(sellerAuth.id);
           const myPays = sellerPayments.filter((x) => x.sellerId === sellerAuth.id);
           const myMsgs = sellerMessages.filter((m) => m.sellerId === sellerAuth.id);
+          const unreadReplies = myMsgs.filter((m) => m.reply && (m.repliedAt || "") > sellerMsgSeenAt).length;
           const byMonth = {};
           mine.filter((o) => o.status === "ડિલિવર થયો").forEach((o) => {
             const d = new Date(o.createdAt);
@@ -4729,6 +4765,28 @@ export default function ApniDukanApp() {
           });
           const monthKeys = Object.keys(byMonth).sort().reverse();
           const monthLabel = (k) => { const [y, m] = k.split("-"); return new Date(Number(y), Number(m) - 1, 1).toLocaleString("gu-IN", { month: "long", year: "numeric" }); };
+          const pad2 = (n) => String(n).padStart(2, "0");
+          const dayKey = (iso) => { const d = new Date(iso); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; };
+          const byDay = {};
+          mine.forEach((o) => {
+            if (!o.createdAt) return;
+            const k = dayKey(o.createdAt);
+            byDay[k] = byDay[k] || { count: 0, amount: 0, orders: [] };
+            byDay[k].count += 1;
+            byDay[k].amount += mineTotal(o);
+            byDay[k].orders.push(o);
+          });
+          const calPrefix = `${calMonth.y}-${pad2(calMonth.m + 1)}-`;
+          const firstDow = new Date(calMonth.y, calMonth.m, 1).getDay();
+          const daysInMonth = new Date(calMonth.y, calMonth.m + 1, 0).getDate();
+          const calCells = [];
+          for (let i = 0; i < firstDow; i++) calCells.push(null);
+          for (let d = 1; d <= daysInMonth; d++) calCells.push(d);
+          const calMonthTotal = Object.keys(byDay).filter((k) => k.startsWith(calPrefix)).reduce((sum, k) => sum + byDay[k].amount, 0);
+          const compactRs = (n) => (n >= 100000 ? `₹${(n / 100000).toFixed(1)}L` : `₹${Math.round(n).toLocaleString("en-IN")}`);
+          const moveMonth = (delta) => { const d = new Date(calMonth.y, calMonth.m + delta, 1); setCalMonth({ y: d.getFullYear(), m: d.getMonth() }); setCalSel(""); };
+          const selDay = calSel && byDay[calSel] ? byDay[calSel] : null;
+          const navBtn = { border: `1px solid ${T.hairline}`, background: "transparent", borderRadius: 8, padding: "4px 12px", fontSize: 13, cursor: "pointer" };
           const myProducts = products.filter((x) => x.sellerId === sellerAuth.id);
           const q = sellerStockQuery.trim().toLowerCase();
           const shownProducts = myProducts.filter((x) => !q || String(x.name || "").toLowerCase().includes(q));
@@ -4736,7 +4794,7 @@ export default function ApniDukanApp() {
           const tabBtn = (key, label) => (
             <button
               key={key}
-              onClick={() => setSellerTab(key)}
+              onClick={() => openSellerTab(key)}
               style={{
                 flex: 1, padding: "8px 2px", fontSize: 12, fontWeight: 700, borderRadius: 8, cursor: "pointer",
                 border: `1px solid ${T.hairline}`, background: sellerTab === key ? T.orange : "transparent",
@@ -4775,7 +4833,7 @@ export default function ApniDukanApp() {
                   {tabBtn("orders", "ઓર્ડર")}
                   {tabBtn("stock", "સ્ટોક")}
                   {tabBtn("hisab", "હિસાબ")}
-                  {tabBtn("msg", "મેસેજ")}
+                  {tabBtn("msg", unreadReplies > 0 ? `મેસેજ 🔴${unreadReplies}` : "મેસેજ")}
                 </div>
 
                 {sellerTab === "orders" && (
@@ -4858,6 +4916,65 @@ export default function ApniDukanApp() {
                       {SELLER_PAYOUT_PCT !== 100 ? ` તમારો હિસ્સો ${SELLER_PAYOUT_PCT}%.` : ""}
                     </div>
 
+                    <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 6 }}>📅 તારીખ પ્રમાણે ઓર્ડર</div>
+                    <div style={{ ...styles.orderCard, marginBottom: 14 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                        <button onClick={() => moveMonth(-1)} style={navBtn}>◀</button>
+                        <div style={{ textAlign: "center" }}>
+                          <div style={{ fontWeight: 800, fontSize: 13 }}>{monthLabel(`${calMonth.y}-${pad2(calMonth.m + 1)}`)}</div>
+                          <div style={{ fontSize: 11, color: "#6b6555" }}>આ મહિનાના ઓર્ડર: <b>{formatRs(calMonthTotal)}</b></div>
+                        </div>
+                        <button onClick={() => moveMonth(1)} style={navBtn}>▶</button>
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 3 }}>
+                        {["ર", "સો", "મં", "બુ", "ગુ", "શુ", "શ"].map((w) => (
+                          <div key={w} style={{ textAlign: "center", fontSize: 10.5, fontWeight: 700, color: "#8a8378" }}>{w}</div>
+                        ))}
+                        {calCells.map((d, i) => {
+                          if (d == null) return <div key={`e${i}`} />;
+                          const k = `${calPrefix}${pad2(d)}`;
+                          const info = byDay[k];
+                          const picked = calSel === k;
+                          return (
+                            <div
+                              key={k}
+                              onClick={() => info && setCalSel(picked ? "" : k)}
+                              style={{
+                                minHeight: 46, borderRadius: 6, padding: "2px 1px", textAlign: "center",
+                                cursor: info ? "pointer" : "default",
+                                border: picked ? `2px solid ${T.orange}` : `1px solid ${T.hairline}`,
+                                background: info ? "#FFF1DC" : "transparent",
+                              }}
+                            >
+                              <div style={{ fontSize: 11, color: "#6b6555" }}>{d}</div>
+                              {info && <div style={{ fontSize: 9.5, fontWeight: 800, color: "#b34a00", lineHeight: 1.2 }}>{compactRs(info.amount)}</div>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {selDay ? (
+                        <div style={{ marginTop: 10 }}>
+                          <div style={{ fontWeight: 800, fontSize: 12.5, marginBottom: 4 }}>
+                            {fmtD(`${calSel}T00:00:00`)} · {selDay.count} ઓર્ડર · {formatRs(selDay.amount)}
+                          </div>
+                          {selDay.orders.map((o) => (
+                            <div key={o.id} style={{ fontSize: 12, borderTop: `1px dashed ${T.hairline}`, padding: "5px 0" }}>
+                              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                                <b>#{numById[o.id]} · {new Date(o.createdAt).toLocaleTimeString("gu-IN", { hour: "2-digit", minute: "2-digit" })}</b>
+                                <span style={{ color: o.status === "ડિલિવર થયો" ? "#2e9e57" : T.orange, fontWeight: 700 }}>{o.status || "નવો"}</span>
+                              </div>
+                              <div style={{ color: "#6b6555" }}>{o.myItems.map((it) => `${it.name} × ${it.qty}`).join(", ")}</div>
+                              <div style={{ fontWeight: 700 }}>{formatRs(mineTotal(o))}</div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: 10.5, color: "#8a8378", marginTop: 8 }}>
+                          દરેક તારીખે તે દિવસના બધા ઓર્ડરની રકમ દેખાય છે. વિગત જોવા તારીખ દબાવો.
+                        </div>
+                      )}
+                    </div>
+
                     <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 6 }}>મહિના પ્રમાણે</div>
                     {monthKeys.length === 0 && <div style={{ fontSize: 12, color: "#8a8378", marginBottom: 12 }}>હજુ કોઈ ડિલિવર થયેલો ઓર્ડર નથી.</div>}
                     {monthKeys.map((k) => (
@@ -4898,6 +5015,12 @@ export default function ApniDukanApp() {
                           {fmtDt(m.at)} · {m.done ? "✔ એડમિને જોયું" : "મોકલાયો"}
                         </div>
                         <div style={{ fontSize: 12.5, marginTop: 3, whiteSpace: "pre-wrap" }}>{m.text}</div>
+                        {m.reply && (
+                          <div style={{ marginTop: 6, padding: "6px 8px", background: "#e8f6ec", borderRadius: 8, fontSize: 12.5, whiteSpace: "pre-wrap" }}>
+                            <div style={{ fontSize: 10.5, color: "#2e7d4f", fontWeight: 700 }}>એડમિનનો જવાબ · {fmtDt(m.repliedAt)}</div>
+                            {m.reply}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -4931,6 +5054,25 @@ export default function ApniDukanApp() {
                         {new Date(m.at).toLocaleString("gu-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
                       </div>
                       <div style={{ fontSize: 13, marginTop: 4, whiteSpace: "pre-wrap" }}>{m.text}</div>
+                      {m.reply && (
+                        <div style={{ fontSize: 12.5, marginTop: 6, padding: "6px 8px", background: T.surface2, borderRadius: 8, whiteSpace: "pre-wrap" }}>
+                          <b>તમારો જવાબ:</b> {m.reply}
+                        </div>
+                      )}
+                      <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                        <input
+                          style={{ ...styles.textInput, flex: 1, padding: "6px 8px", fontSize: 12 }}
+                          placeholder={m.reply ? "નવો જવાબ લખો..." : "જવાબ લખો..."}
+                          value={replyInputs[m.id] || ""}
+                          onChange={(e) => setReplyInputs((prev) => ({ ...prev, [m.id]: e.target.value }))}
+                        />
+                        <button
+                          style={{ border: "none", background: T.orange, color: "#fff", borderRadius: 8, padding: "6px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+                          onClick={() => replyToSellerMessage(m.id)}
+                        >
+                          જવાબ મોકલો
+                        </button>
+                      </div>
                       <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                         {!m.done && (
                           <button
