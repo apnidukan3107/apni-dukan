@@ -114,7 +114,18 @@ export default async function handler(req, res) {
         order = orders[idx]; num = orders.length - idx;
       }
       const names = await loadSellerNames(db);
-      order = { ...order, items: (order.items || []).map((it) => ({ ...it, partyName: names[it.sellerId] || '' })) };
+      const itemsWithParty = [];
+      for (const it of order.items || []) {
+        let sid = it.sellerId;
+        if (!sid && it.id) {   // order saved before the product had a seller -> use the product's seller as it is now
+          try {
+            const ps = await db.collection('store').doc('product__' + it.id).get();
+            if (ps.exists) sid = ps.data().sellerId || '';
+          } catch { /* ignore */ }
+        }
+        itemsWithParty.push({ ...it, partyName: names[sid] || '' });
+      }
+      order = { ...order, items: itemsWithParty };
       const canvas = renderBill(order, num);
       if (action === 'preview') {
         res.setHeader('Content-Type', 'image/png');
