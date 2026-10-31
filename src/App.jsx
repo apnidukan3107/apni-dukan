@@ -84,6 +84,8 @@ async function storageSet(key, value) {
 // because the Firestore security rules only grant access to documents
 // matching /store/{docId}, so a brand-new collection would be silently
 // denied. Using the same "store" collection means no rules changes needed.
+// Share of the sale price that is paid to the seller (100 = full price of his items). Used for the seller's hisab.
+const SELLER_PAYOUT_PCT = 100;
 const PRODUCT_KEY_PREFIX = "product__";
 function productKey(id) {
   return PRODUCT_KEY_PREFIX + id;
@@ -2241,6 +2243,91 @@ export default function ApniDukanApp() {
     })();
   }, []);
 
+  // ---- seller panel: payments (hisab), messages to admin, stock search ----
+  const [sellerPayments, setSellerPayments] = useState([]);
+  const [sellerMessages, setSellerMessages] = useState([]);
+  const [sellerTab, setSellerTab] = useState("orders");
+  const [sellerMsgText, setSellerMsgText] = useState("");
+  const [sellerStockQuery, setSellerStockQuery] = useState("");
+  const [payInputs, setPayInputs] = useState({});
+
+  useEffect(() => {
+    (async () => {
+      for (const [key, setter] of [["sellerPayments", setSellerPayments], ["sellerMessages", setSellerMessages]]) {
+        try {
+          const res = await storageGet(key);
+          if (res && res.value) {
+            const parsed = JSON.parse(res.value);
+            if (Array.isArray(parsed)) setter(parsed);
+          }
+        } catch {}
+      }
+    })();
+  }, []);
+
+  // Reads the latest list from Firestore first, applies the change, saves. Two people never overwrite each other.
+  async function updateStoredList(key, current, setter, change) {
+    let base = current;
+    try {
+      const r = await storageGet(key);
+      if (r && r.value) {
+        const parsed = JSON.parse(r.value);
+        if (Array.isArray(parsed)) base = parsed;
+      }
+    } catch {}
+    const next = change(base);
+    setter(next);
+    try {
+      await storageSet(key, JSON.stringify(next));
+    } catch {}
+  }
+
+  // What the seller has sold (delivered orders), what was paid to him, and what is still due.
+  function sellerHisab(sid) {
+    let deliveredTotal = 0;
+    let deliveredCount = 0;
+    orders.forEach((o) => {
+      if (o.status !== "ડિલિવર થયો") return;
+      const mine = (o.items || []).filter((it) => it.sellerId === sid);
+      if (mine.length === 0) return;
+      deliveredCount += 1;
+      deliveredTotal += mine.reduce((sum, it) => sum + (Number(it.price) || 0) * (Number(it.qty) || 0), 0);
+    });
+    const payable = Math.round((deliveredTotal * SELLER_PAYOUT_PCT) / 100);
+    const paid = sellerPayments.filter((x) => x.sellerId === sid).reduce((sum, x) => sum + (Number(x.amount) || 0), 0);
+    return { deliveredCount, deliveredTotal, payable, paid, balance: payable - paid };
+  }
+
+  async function sendSellerMessage() {
+    const text = sellerMsgText.trim();
+    if (!text || !sellerAuth) return;
+    setSellerMsgText("");
+    const entry = { id: uid("msg"), sellerId: sellerAuth.id, sellerName: sellerAuth.name, text, at: new Date().toISOString(), done: false };
+    await updateStoredList("sellerMessages", sellerMessages, setSellerMessages, (l) => [entry, ...l]);
+  }
+  async function markSellerMessageDone(id) {
+    await updateStoredList("sellerMessages", sellerMessages, setSellerMessages, (l) => l.map((m) => (m.id === id ? { ...m, done: true } : m)));
+  }
+  async function deleteSellerMessage(id) {
+    await updateStoredList("sellerMessages", sellerMessages, setSellerMessages, (l) => l.filter((m) => m.id !== id));
+  }
+  async function addSellerPayment(sid) {
+    const inp = payInputs[sid] || {};
+    const amount = Number(inp.amount);
+    if (!(amount > 0)) return;
+    const entry = { id: uid("pay"), sellerId: sid, amount, note: (inp.note || "").trim(), date: new Date().toISOString() };
+    setPayInputs((prev) => ({ ...prev, [sid]: { amount: "", note: "" } }));
+    await updateStoredList("sellerPayments", sellerPayments, setSellerPayments, (l) => [entry, ...l]);
+  }
+  async function deleteSellerPayment(id) {
+    if (!window.confirm("આ ચૂકવણી કાઢી નાખવી?")) return;
+    await updateStoredList("sellerPayments", sellerPayments, setSellerPayments, (l) => l.filter((x) => x.id !== id));
+  }
+  // seller marks a product "ખતમ" / available again (customers can't add it to the cart while it is ખતમ)
+  async function toggleSoldOut(prod) {
+    await productSave({ ...prod, soldOut: !prod.soldOut });
+  }
+
   async function savePendingSellers(next) {
     setPendingSellers(next);
     try {
@@ -2826,6 +2913,8 @@ export default function ApniDukanApp() {
   const cartTotal = cartItems.reduce((s, i) => s + i.price * i.qty, 0);
 
   function addToCart(id, size) {
+    const pr = products.find((x) => x.id === id);
+    if (pr && pr.soldOut) return;   // seller marked this product "ખતમ"
     const key = size && size.trim() ? `${id}__SIZE__${encodeURIComponent(size.trim())}` : id;
     setCart((prev) => ({ ...prev, [key]: (prev[key] || 0) + 1 }));
   }
@@ -2953,6 +3042,11 @@ export default function ApniDukanApp() {
         setAppliedPromoCode(null);
         return;
       }
+    }
+    const soldOutItem = cartItems.find((i) => i.soldOut);
+    if (soldOutItem) {
+      setCheckoutError(`${soldOutItem.name} હાલ ઉપલબ્ધ નથી. કૃપા કરીને કાર્ટમાંથી કાઢી નાખો.`);
+      return;
     }
     setCheckoutError("");
     setSaving(true);
@@ -3796,7 +3890,9 @@ export default function ApniDukanApp() {
                           <div style={styles.cardMrp}>{formatRs(p.mrp)}</div>
                         ) : null}
                       </div>
-                      {p.requiresSize ? (
+                      {p.soldOut ? (
+                        <span style={{ fontSize: 11, fontWeight: 700, color: "#b23b3b" }}>ઉપલબ્ધ નથી</span>
+                      ) : p.requiresSize ? (
                         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                           <input
                             type="text"
@@ -4359,9 +4455,11 @@ export default function ApniDukanApp() {
                         <div style={styles.cardPrice}>
                           {formatRs(p.price)}{p.unit ? <span style={{ fontSize: 10, fontWeight: 600 }}> /{p.unit}</span> : null}
                         </div>
-                        {!p.requiresSize && (
+                        {!p.requiresSize && (p.soldOut ? (
+                          <span style={{ fontSize: 11, fontWeight: 700, color: "#b23b3b" }}>ઉપલબ્ધ નથી</span>
+                        ) : (
                           <button style={styles.addBtn} onClick={() => addToCart(p.id)}>ઉમેરો</button>
-                        )}
+                        ))}
                       </div>
                     </div>
                   </div>
@@ -4602,44 +4700,212 @@ export default function ApniDukanApp() {
           </div>
         )}
 
-        {/* SELLER ORDERS — seller sees only orders whose items carry his sellerId */}
-        {view === "sellerOrders" && sellerAuth && (
-          <div style={styles.scrollArea} className="scroll-area view-narrow">
-            <div style={{ padding: 16 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-                <div style={{ fontWeight: 800, fontSize: 15 }}>{sellerAuth.name}</div>
-                <button
-                  style={{ border: "none", background: "transparent", color: T.orange, fontWeight: 700, cursor: "pointer" }}
-                  onClick={sellerLogout}
-                >
-                  લોગઆઉટ
-                </button>
-              </div>
-              {(() => {
-                const mine = orders
-                  .map((o) => ({ ...o, myItems: (o.items || []).filter((it) => it.sellerId === sellerAuth.id) }))
-                  .filter((o) => o.myItems.length > 0);
-                if (mine.length === 0) {
-                  return <div style={{ textAlign: "center", color: "#8a8378", marginTop: 40 }}>હજુ કોઈ ઓર્ડર નથી</div>;
-                }
-                return mine.map((o) => (
-                  <div key={o.id} style={{ ...styles.orderCard, marginBottom: 10 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between" }}>
-                      <span style={{ fontWeight: 800, fontSize: 13 }}>ઓર્ડર #{o.id.slice(-4)}</span>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: T.orange }}>{o.status}</span>
-                    </div>
-                    <div style={{ fontSize: 12, color: "#6b6555", marginTop: 4 }}>
-                      {o.myItems.map((it) => `${it.name} x${it.qty}`).join(", ")}
-                    </div>
-                    <div style={{ fontSize: 12, marginTop: 4 }}>
-                      {o.customer?.name || "ગ્રાહક"} — {formatRs(o.myItems.reduce((s, it) => s + it.price * it.qty, 0))}
-                    </div>
-                  </div>
-                ));
-              })()}
+        {/* SELLER PANEL — orders, stock, hisab and messages for the logged-in seller */}
+        {view === "sellerOrders" && sellerAuth && (() => {
+          const numById = {};
+          orders.forEach((o, idx) => { numById[o.id] = orders.length - idx; });   // same number as the printed bill
+          const mine = orders
+            .map((o) => ({ ...o, myItems: (o.items || []).filter((it) => it.sellerId === sellerAuth.id) }))
+            .filter((o) => o.myItems.length > 0);
+          const mineTotal = (o) => o.myItems.reduce((sum, it) => sum + (Number(it.price) || 0) * (Number(it.qty) || 0), 0);
+          const now = new Date();
+          const isToday = (iso) => new Date(iso).toDateString() === now.toDateString();
+          const isThisMonth = (iso) => { const d = new Date(iso); return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth(); };
+          const todayNew = mine.filter((o) => isToday(o.createdAt)).length;
+          const notDelivered = mine.filter((o) => o.status !== "ડિલિવર થયો").length;
+          const monthTotal = mine.filter((o) => isThisMonth(o.createdAt)).reduce((sum, o) => sum + mineTotal(o), 0);
+          const fmtDt = (iso) => new Date(iso).toLocaleString("gu-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+          const fmtD = (iso) => new Date(iso).toLocaleDateString("gu-IN", { day: "2-digit", month: "short", year: "numeric" });
+          const hisab = sellerHisab(sellerAuth.id);
+          const myPays = sellerPayments.filter((x) => x.sellerId === sellerAuth.id);
+          const myMsgs = sellerMessages.filter((m) => m.sellerId === sellerAuth.id);
+          const byMonth = {};
+          mine.filter((o) => o.status === "ડિલિવર થયો").forEach((o) => {
+            const d = new Date(o.createdAt);
+            const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+            byMonth[k] = byMonth[k] || { count: 0, amount: 0 };
+            byMonth[k].count += 1;
+            byMonth[k].amount += mineTotal(o);
+          });
+          const monthKeys = Object.keys(byMonth).sort().reverse();
+          const monthLabel = (k) => { const [y, m] = k.split("-"); return new Date(Number(y), Number(m) - 1, 1).toLocaleString("gu-IN", { month: "long", year: "numeric" }); };
+          const myProducts = products.filter((x) => x.sellerId === sellerAuth.id);
+          const q = sellerStockQuery.trim().toLowerCase();
+          const shownProducts = myProducts.filter((x) => !q || String(x.name || "").toLowerCase().includes(q));
+          const soldOutCount = myProducts.filter((x) => x.soldOut).length;
+          const tabBtn = (key, label) => (
+            <button
+              key={key}
+              onClick={() => setSellerTab(key)}
+              style={{
+                flex: 1, padding: "8px 2px", fontSize: 12, fontWeight: 700, borderRadius: 8, cursor: "pointer",
+                border: `1px solid ${T.hairline}`, background: sellerTab === key ? T.orange : "transparent",
+                color: sellerTab === key ? "#fff" : T.ink,
+              }}
+            >
+              {label}
+            </button>
+          );
+          const statBox = (label, value, danger) => (
+            <div style={{ flex: 1, background: T.surface2, borderRadius: 10, padding: "8px 4px", textAlign: "center" }}>
+              <div style={{ fontSize: 15, fontWeight: 800, color: danger ? "#b23b3b" : T.ink }}>{value}</div>
+              <div style={{ fontSize: 10.5, color: "#8a8378", marginTop: 2 }}>{label}</div>
             </div>
-          </div>
-        )}
+          );
+          return (
+            <div style={styles.scrollArea} className="scroll-area view-narrow">
+              <div style={{ padding: 16 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                  <div style={{ fontWeight: 800, fontSize: 15 }}>{sellerAuth.name}</div>
+                  <button
+                    style={{ border: "none", background: "transparent", color: T.orange, fontWeight: 700, cursor: "pointer" }}
+                    onClick={sellerLogout}
+                  >
+                    લોગઆઉટ
+                  </button>
+                </div>
+
+                <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+                  {statBox("આજના ઓર્ડર", todayNew)}
+                  {statBox("બાકી ડિલિવરી", notDelivered, notDelivered > 0)}
+                  {statBox("આ મહિનાનું વેચાણ", formatRs(monthTotal))}
+                </div>
+
+                <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+                  {tabBtn("orders", "ઓર્ડર")}
+                  {tabBtn("stock", "સ્ટોક")}
+                  {tabBtn("hisab", "હિસાબ")}
+                  {tabBtn("msg", "મેસેજ")}
+                </div>
+
+                {sellerTab === "orders" && (
+                  mine.length === 0 ? (
+                    <div style={{ textAlign: "center", color: "#8a8378", marginTop: 40 }}>હજુ કોઈ ઓર્ડર નથી</div>
+                  ) : (
+                    mine.map((o) => (
+                      <div key={o.id} style={{ ...styles.orderCard, marginBottom: 10 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between" }}>
+                          <span style={{ fontWeight: 800, fontSize: 13 }}>ઓર્ડર #{numById[o.id]}</span>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: o.status === "ડિલિવર થયો" ? "#2e9e57" : T.orange }}>{o.status || "નવો"}</span>
+                        </div>
+                        <div style={{ fontSize: 11, color: "#8a8378", marginTop: 2 }}>{o.createdAt ? fmtDt(o.createdAt) : ""}</div>
+                        <div style={{ fontSize: 12.5, marginTop: 6 }}>
+                          {o.myItems.map((it, i) => (
+                            <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                              <span>{it.name} × {it.qty}</span>
+                              <span style={{ color: "#6b6555" }}>{formatRs((Number(it.price) || 0) * (Number(it.qty) || 0))}</span>
+                            </div>
+                          ))}
+                        </div>
+                        <div style={{ fontSize: 12, marginTop: 6, fontWeight: 700 }}>
+                          {o.customer?.name || "ગ્રાહક"} — {formatRs(mineTotal(o))}
+                        </div>
+                      </div>
+                    ))
+                  )
+                )}
+
+                {sellerTab === "stock" && (
+                  <div>
+                    <div style={{ fontSize: 12, color: "#6b6555", marginBottom: 8 }}>
+                      વસ્તુ ખતમ થાય ત્યારે <b>ખતમ</b> કરો. ગ્રાહક તેને કાર્ટમાં ઉમેરી નહીં શકે. ફરી આવે ત્યારે ચાલુ કરો.
+                      {myProducts.length > 0 ? ` (કુલ ${myProducts.length}, ખતમ ${soldOutCount})` : ""}
+                    </div>
+                    {myProducts.length === 0 ? (
+                      <div style={{ textAlign: "center", color: "#8a8378", marginTop: 30 }}>તમારા નામે કોઈ પ્રોડક્ટ નથી. એડમિનને મેસેજ કરો.</div>
+                    ) : (
+                      <>
+                        <input
+                          style={{ ...styles.textInput, marginBottom: 8 }}
+                          placeholder="પ્રોડક્ટ શોધો"
+                          value={sellerStockQuery}
+                          onChange={(e) => setSellerStockQuery(e.target.value)}
+                        />
+                        {shownProducts.slice(0, 60).map((x) => (
+                          <div key={x.id} style={{ ...styles.orderCard, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: 12.5, fontWeight: 700 }}>{x.name}</div>
+                              <div style={{ fontSize: 11, color: "#8a8378" }}>{formatRs(x.price)}</div>
+                            </div>
+                            <button
+                              onClick={() => toggleSoldOut(x)}
+                              style={{
+                                border: `1px solid ${T.hairline}`, borderRadius: 8, padding: "6px 10px", fontSize: 11.5, fontWeight: 700, cursor: "pointer",
+                                background: x.soldOut ? "#fdecec" : "#e8f6ec", color: x.soldOut ? "#b23b3b" : "#2e7d4f",
+                              }}
+                            >
+                              {x.soldOut ? "❌ ખતમ" : "✅ ઉપલબ્ધ"}
+                            </button>
+                          </div>
+                        ))}
+                        {shownProducts.length > 60 && (
+                          <div style={{ fontSize: 11, color: "#8a8378", textAlign: "center" }}>બીજા {shownProducts.length - 60} માટે ઉપર શોધો.</div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {sellerTab === "hisab" && (
+                  <div>
+                    <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+                      {statBox("પૂર્ણ વેચાણ", formatRs(hisab.payable))}
+                      {statBox("મળેલ", formatRs(hisab.paid))}
+                      {statBox("બાકી", formatRs(hisab.balance), hisab.balance > 0)}
+                    </div>
+                    <div style={{ fontSize: 10.5, color: "#8a8378", marginBottom: 12 }}>
+                      "પૂર્ણ વેચાણ" માં ફક્ત <b>ડિલિવર થયેલા</b> ઓર્ડર ({hisab.deliveredCount}) ગણાય છે.
+                      {SELLER_PAYOUT_PCT !== 100 ? ` તમારો હિસ્સો ${SELLER_PAYOUT_PCT}%.` : ""}
+                    </div>
+
+                    <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 6 }}>મહિના પ્રમાણે</div>
+                    {monthKeys.length === 0 && <div style={{ fontSize: 12, color: "#8a8378", marginBottom: 12 }}>હજુ કોઈ ડિલિવર થયેલો ઓર્ડર નથી.</div>}
+                    {monthKeys.map((k) => (
+                      <div key={k} style={{ ...styles.orderCard, display: "flex", justifyContent: "space-between", marginBottom: 6, fontSize: 12.5 }}>
+                        <span>{monthLabel(k)} · {byMonth[k].count} ઓર્ડર</span>
+                        <b>{formatRs(Math.round((byMonth[k].amount * SELLER_PAYOUT_PCT) / 100))}</b>
+                      </div>
+                    ))}
+
+                    <div style={{ fontWeight: 800, fontSize: 13, margin: "14px 0 6px" }}>તમને મળેલી ચૂકવણી</div>
+                    {myPays.length === 0 && <div style={{ fontSize: 12, color: "#8a8378" }}>હજુ કોઈ ચૂકવણી નોંધાઈ નથી.</div>}
+                    {myPays.map((x) => (
+                      <div key={x.id} style={{ ...styles.orderCard, display: "flex", justifyContent: "space-between", marginBottom: 6, fontSize: 12.5 }}>
+                        <span>{fmtD(x.date)}{x.note ? ` · ${x.note}` : ""}</span>
+                        <b>{formatRs(x.amount)}</b>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {sellerTab === "msg" && (
+                  <div>
+                    <div style={{ fontSize: 12, color: "#6b6555", marginBottom: 8 }}>એડમિનને કોઈ સવાલ કે જાણ કરવી હોય તો અહીં લખો.</div>
+                    <textarea
+                      style={{ ...styles.textInput, minHeight: 80, resize: "vertical" }}
+                      placeholder="તમારો મેસેજ લખો..."
+                      value={sellerMsgText}
+                      onChange={(e) => setSellerMsgText(e.target.value)}
+                    />
+                    <button style={{ ...styles.primaryBtn, marginTop: 8 }} onClick={sendSellerMessage}>
+                      મેસેજ મોકલો
+                    </button>
+                    <div style={{ fontWeight: 800, fontSize: 13, margin: "16px 0 6px" }}>તમારા મેસેજ</div>
+                    {myMsgs.length === 0 && <div style={{ fontSize: 12, color: "#8a8378" }}>હજુ કોઈ મેસેજ મોકલ્યો નથી.</div>}
+                    {myMsgs.map((m) => (
+                      <div key={m.id} style={{ ...styles.orderCard, marginBottom: 6 }}>
+                        <div style={{ fontSize: 11, color: "#8a8378" }}>
+                          {fmtDt(m.at)} · {m.done ? "✔ એડમિને જોયું" : "મોકલાયો"}
+                        </div>
+                        <div style={{ fontSize: 12.5, marginTop: 3, whiteSpace: "pre-wrap" }}>{m.text}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* ADMIN PANEL */}
         {view === "admin" && (
@@ -4649,6 +4915,40 @@ export default function ApniDukanApp() {
                 <summary style={{ fontWeight: 800, fontSize: 14, cursor: "pointer" }}>👑 Premium customers / Wallet</summary>
                 <div style={{ marginTop: 10 }}>
                   <AdminCustomers />
+                </div>
+              </details>
+
+              <details style={{ marginBottom: 16 }}>
+                <summary style={{ fontWeight: 800, fontSize: 14, cursor: "pointer" }}>
+                  ✉️ Seller Messages {sellerMessages.filter((m) => !m.done).length > 0 ? `(${sellerMessages.filter((m) => !m.done).length})` : ""}
+                </summary>
+                <div style={{ marginTop: 10 }}>
+                  {sellerMessages.length === 0 && <div style={{ fontSize: 12, color: "#8a8378" }}>હાલમાં કોઈ મેસેજ નથી.</div>}
+                  {sellerMessages.map((m) => (
+                    <div key={m.id} style={{ ...styles.orderCard, marginBottom: 8, ...(m.done ? { opacity: 0.6 } : {}) }}>
+                      <div style={{ fontWeight: 800, fontSize: 13 }}>{m.sellerName}</div>
+                      <div style={{ fontSize: 11, color: "#8a8378" }}>
+                        {new Date(m.at).toLocaleString("gu-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+                      </div>
+                      <div style={{ fontSize: 13, marginTop: 4, whiteSpace: "pre-wrap" }}>{m.text}</div>
+                      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                        {!m.done && (
+                          <button
+                            style={{ ...styles.primaryBtn, marginTop: 0, flex: 1, padding: "8px 0", fontSize: 12 }}
+                            onClick={() => markSellerMessageDone(m.id)}
+                          >
+                            ✓ જોયું
+                          </button>
+                        )}
+                        <button
+                          style={{ border: `1px solid ${T.hairline}`, background: "transparent", borderRadius: 8, padding: "8px 12px", fontSize: 12, cursor: "pointer" }}
+                          onClick={() => deleteSellerMessage(m.id)}
+                        >
+                          ✕ કાઢો
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </details>
 
@@ -4698,6 +4998,45 @@ export default function ApniDukanApp() {
                       <div>
                         <div style={{ fontWeight: 800, fontSize: 13 }}>સેલર #{si + 1} · {s.name}</div>
                         <div style={{ fontSize: 11, color: "#8a8378" }}>મોબાઇલ: {s.mobile || "—"} · PIN: {s.pin}</div>
+                        {(() => {
+                          const h = sellerHisab(s.id);
+                          const pi = payInputs[s.id] || { amount: "", note: "" };
+                          return (
+                            <div style={{ marginTop: 6 }}>
+                              <div style={{ fontSize: 11.5 }}>
+                                હિસાબ બાકી: <b style={{ color: h.balance > 0 ? "#b23b3b" : "inherit" }}>{formatRs(h.balance)}</b>
+                                <span style={{ color: "#8a8378" }}> (ડિલિવર થયેલા {formatRs(h.payable)} − ચૂકવેલ {formatRs(h.paid)})</span>
+                              </div>
+                              <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+                                <input
+                                  type="number"
+                                  style={{ ...styles.textInput, width: 90, padding: "6px 8px", fontSize: 12 }}
+                                  placeholder="₹ ચૂકવ્યા"
+                                  value={pi.amount}
+                                  onChange={(e) => setPayInputs((prev) => ({ ...prev, [s.id]: { ...pi, amount: e.target.value } }))}
+                                />
+                                <input
+                                  style={{ ...styles.textInput, flex: 1, padding: "6px 8px", fontSize: 12 }}
+                                  placeholder="નોંધ (વૈકલ્પિક)"
+                                  value={pi.note}
+                                  onChange={(e) => setPayInputs((prev) => ({ ...prev, [s.id]: { ...pi, note: e.target.value } }))}
+                                />
+                                <button
+                                  style={{ border: "none", background: T.orange, color: "#fff", borderRadius: 8, padding: "6px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+                                  onClick={() => addSellerPayment(s.id)}
+                                >
+                                  ઉમેરો
+                                </button>
+                              </div>
+                              {sellerPayments.filter((x) => x.sellerId === s.id).slice(0, 3).map((x) => (
+                                <div key={x.id} style={{ fontSize: 11, color: "#6b6555", marginTop: 3 }}>
+                                  {new Date(x.date).toLocaleDateString("gu-IN", { day: "2-digit", month: "short" })} · {formatRs(x.amount)}{x.note ? ` · ${x.note}` : ""}{" "}
+                                  <span style={{ color: "#c0392b", cursor: "pointer" }} onClick={() => deleteSellerPayment(x.id)}>✕</span>
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        })()}
                       </div>
                       <button
                         style={{ border: "none", background: "transparent", cursor: "pointer" }}
@@ -5284,6 +5623,7 @@ export default function ApniDukanApp() {
                     <div style={{ fontSize: 11, color: "#8a8378" }}>
                       {p.category} · {formatRs(p.price)}
                       {p.stock != null && p.stock !== "" ? ` · સ્ટોક: ${p.stock}` : ""}
+                      {p.soldOut ? " · ❌ ખતમ (સેલરે)" : ""}
                     </div>
                   </div>
                   <button style={styles.removeBtn} onClick={() => startEditProduct(p)} aria-label="એડિટ કરો">
