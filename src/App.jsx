@@ -2485,7 +2485,75 @@ export default function ApniDukanApp() {
   const [customCategories, setCustomCategories] = useState([]);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [showProductList, setShowProductList] = useState(false);
+  // admin dashboard: long lists stay hidden until the section is tapped; products are shown per category
+  const [adminOpen, setAdminOpen] = useState({});
+  const [adminCat, setAdminCat] = useState("");
+  const [bulkCat, setBulkCat] = useState("");
+  const [adminMore, setAdminMore] = useState({ low: 50, cust: 50, prod: 60 });
+  const toggleAdminSection = (k) => setAdminOpen((prev) => ({ ...prev, [k]: !prev[k] }));
+  const showMoreOf = (k) => setAdminMore((prev) => ({ ...prev, [k]: (prev[k] || 50) + 50 }));
+  const productCategoryCounts = useMemo(() => {
+    const m = {};
+    products.forEach((p) => { const c = p.category || "અન્ય"; m[c] = (m[c] || 0) + 1; });
+    return Object.entries(m)
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([name, count]) => ({ name, count }));
+  }, [products]);
+  function adminToggleHeader(key, title) {
+    return (
+      <button
+        style={{
+          ...styles.adminSectionTitle, width: "100%", background: T.surface2, border: `1px solid ${T.hairline}`,
+          borderRadius: 10, padding: "12px 12px", cursor: "pointer", justifyContent: "space-between",
+          fontFamily: "inherit", textTransform: "none", letterSpacing: 0, marginBottom: 8,
+        }}
+        onClick={() => toggleAdminSection(key)}
+      >
+        <span>{title}</span>
+        <span style={{ fontSize: 11, color: T.inkSoft, fontWeight: 700 }}>{adminOpen[key] ? "છુપાવો ▲" : "જુઓ ▼"}</span>
+      </button>
+    );
+  }
+  function categoryChips(selected, onPick) {
+    return (
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, margin: "8px 0" }}>
+        {productCategoryCounts.map((c) => {
+          const on = selected === c.name;
+          return (
+            <button
+              key={c.name}
+              onClick={() => onPick(on ? "" : c.name)}
+              style={{
+                border: `1px solid ${on ? T.orange : T.hairline}`, background: on ? T.orange : "#fff",
+                color: on ? "#fff" : T.ink, borderRadius: 16, padding: "5px 10px", fontSize: 11.5, fontWeight: 700, cursor: "pointer",
+              }}
+            >
+              {c.name} ({c.count})
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+  function moreButton(key, total) {
+    const shown = adminMore[key] || 50;
+    if (total <= shown) return null;
+    return (
+      <button
+        style={{ width: "100%", border: `1px solid ${T.hairline}`, background: "transparent", borderRadius: 8, padding: "8px 0", fontSize: 12, fontWeight: 700, cursor: "pointer", color: T.inkSoft, marginBottom: 8 }}
+        onClick={() => showMoreOf(key)}
+      >
+        વધુ બતાવો ({total - shown} બાકી)
+      </button>
+    );
+  }
   const [adminSearchQuery, setAdminSearchQuery] = useState("");
+  const adminListed = useMemo(() => {
+    const q = adminSearchQuery.trim().toLowerCase();
+    if (q) return products.filter((p) => (p.name || "").toLowerCase().includes(q));
+    if (adminCat) return products.filter((p) => (p.category || "અન્ય") === adminCat);
+    return [];
+  }, [products, adminSearchQuery, adminCat]);
   // Which date-group headers are expanded in the admin Orders list. The
   // most recent date starts open; older dates stay collapsed until tapped,
   // so there's no more endless scrolling to find today's orders.
@@ -5742,7 +5810,7 @@ export default function ApniDukanApp() {
                     style={styles.searchInput}
                     placeholder="પ્રોડક્ટ શોધો..."
                     value={adminSearchQuery}
-                    onChange={(e) => setAdminSearchQuery(e.target.value)}
+                    onChange={(e) => { setAdminSearchQuery(e.target.value); setAdminMore((prev) => ({ ...prev, prod: 60 })); }}
                   />
                   {adminSearchQuery && (
                     <button style={{ background: "none", border: "none", cursor: "pointer" }} onClick={() => setAdminSearchQuery("")}>
@@ -5751,9 +5819,13 @@ export default function ApniDukanApp() {
                   )}
                 </div>
               )}
-              {showProductList && products
-                .filter((p) => (p.name || "").toLowerCase().includes(adminSearchQuery.toLowerCase()))
-                .map((p) => (
+              {showProductList && categoryChips(adminCat, (c) => { setAdminCat(c); setAdminMore((prev) => ({ ...prev, prod: 60 })); })}
+              {showProductList && adminListed.length === 0 && (
+                <div style={{ fontSize: 12, color: "#a49c88", margin: "4px 0 12px" }}>
+                  {adminSearchQuery.trim() ? "કોઈ પ્રોડક્ટ મળ્યું નથી." : "ઉપરથી કેટેગરી પસંદ કરો અથવા નામ શોધો."}
+                </div>
+              )}
+              {showProductList && adminListed.slice(0, adminMore.prod).map((p) => (
                 <div key={p.id} style={{ ...styles.productRow, ...(editingProductId === p.id ? { background: T.surface2, borderRadius: 8 } : {}) }}>
                   {resolveProductImage(p) ? (
                     <img src={resolveProductImage(p)} alt={p.name} style={{ width: 28, height: 28, objectFit: "cover", borderRadius: 6 }} />
@@ -5776,6 +5848,7 @@ export default function ApniDukanApp() {
                   </button>
                 </div>
               ))}
+              {showProductList && moreButton("prod", adminListed.length)}
 
               {/* ---- 1. Sales Dashboard ---- */}
               <div style={styles.adminSectionTitle}>📊 વેચાણ ડેશબોર્ડ</div>
@@ -5797,9 +5870,9 @@ export default function ApniDukanApp() {
                   <div style={{ fontSize: 17, fontWeight: 800, color: T.ink, marginTop: 2 }}>{dashboardStats.totalOrders}</div>
                 </div>
               </div>
-              {dashboardStats.bestSelling.length > 0 && (
+              {dashboardStats.bestSelling.length > 0 && adminToggleHeader("best", `🏆 સૌથી વધુ વેચાયેલા (${dashboardStats.bestSelling.length})`)}
+              {dashboardStats.bestSelling.length > 0 && adminOpen.best && (
                 <div style={{ background: "#fff", border: `1px solid ${T.hairline}`, borderRadius: 10, padding: 10, marginBottom: 20 }}>
-                  <div style={{ fontSize: 11, fontWeight: 800, color: T.ink, marginBottom: 6 }}>🏆 સૌથી વધુ વેચાયેલા</div>
                   {dashboardStats.bestSelling.map((b, i) => (
                     <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, padding: "5px 0", borderBottom: i < dashboardStats.bestSelling.length - 1 ? `1px solid ${T.hairline}` : "none" }}>
                       <span>{b.name}</span>
@@ -5810,13 +5883,13 @@ export default function ApniDukanApp() {
               )}
 
               {/* ---- 2. Low Stock Alert ---- */}
-              <div style={styles.adminSectionTitle}>⚠️ ઓછો સ્ટોક ({lowStockProducts.length})</div>
-              {lowStockProducts.length === 0 && (
+              {adminToggleHeader("low", `⚠️ ઓછો સ્ટોક (${lowStockProducts.length})`)}
+              {adminOpen.low && lowStockProducts.length === 0 && (
                 <p style={{ color: "#a49c88", fontSize: 12.5, marginBottom: 16 }}>
                   કોઈ પ્રોડક્ટમાં ઓછો સ્ટોક નથી. (સ્ટોક નંબર સેટ કરવા નીચે પ્રોડક્ટ લિસ્ટમાં "સ્ટોક" પર ટેપ કરો.)
                 </p>
               )}
-              {lowStockProducts.map((p) => (
+              {adminOpen.low && lowStockProducts.slice(0, adminMore.low).map((p) => (
                 <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#fff", border: `1px solid ${T.hairline}`, borderRadius: 10, padding: "8px 12px", marginBottom: 8 }}>
                   <div>
                     <div style={{ fontSize: 12, fontWeight: 700, color: T.ink }}>{p.name}</div>
@@ -5827,51 +5900,85 @@ export default function ApniDukanApp() {
                   </span>
                 </div>
               ))}
+              {adminOpen.low && moreButton("low", lowStockProducts.length)}
               <div style={{ height: 10 }} />
 
               {/* ---- 3. Bulk Price Update ---- */}
-              <div style={styles.adminSectionTitle}>💰 બલ્ક ભાવ અપડેટ ({bulkSelectedIds.size} પસંદ કરેલા)</div>
-              <div style={{ maxHeight: 220, overflowY: "auto", marginBottom: 8, border: `1px solid ${T.hairline}`, borderRadius: 10, background: "#fff" }}>
-                {products.slice(0, 100).map((p) => (
-                  <label
-                    key={p.id}
-                    style={{
-                      display: "flex", alignItems: "center", gap: 8, padding: "8px 10px",
-                      borderBottom: `1px solid ${T.hairline}`, fontSize: 11.5, cursor: "pointer",
-                    }}
-                  >
+              {adminToggleHeader("bulk", `💰 બલ્ક ભાવ અપડેટ (${bulkSelectedIds.size} પસંદ કરેલા)`)}
+              {adminOpen.bulk && (
+                <div style={{ marginBottom: 20 }}>
+                  {categoryChips(bulkCat, setBulkCat)}
+                  {bulkCat ? (() => {
+                    const inCat = products.filter((p) => (p.category || "અન્ય") === bulkCat);
+                    return (
+                      <>
+                        <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+                          <button
+                            style={{ flex: 1, border: `1px solid ${T.hairline}`, background: "#fff", borderRadius: 8, padding: "7px 6px", fontSize: 11.5, fontWeight: 700, cursor: "pointer", color: T.ink }}
+                            onClick={() => setBulkSelectedIds((prev) => { const n = new Set(prev); inCat.forEach((p) => n.add(p.id)); return n; })}
+                          >
+                            આ કેટેગરીના બધા પસંદ કરો ({inCat.length})
+                          </button>
+                          <button
+                            style={{ border: `1px solid ${T.hairline}`, background: "transparent", borderRadius: 8, padding: "7px 10px", fontSize: 11.5, fontWeight: 700, cursor: "pointer", color: T.inkSoft }}
+                            onClick={() => setBulkSelectedIds(new Set())}
+                          >
+                            હટાવો
+                          </button>
+                        </div>
+                        <div style={{ maxHeight: 260, overflowY: "auto", marginBottom: 8, border: `1px solid ${T.hairline}`, borderRadius: 10, background: "#fff" }}>
+                          {inCat.slice(0, 150).map((p) => (
+                            <label
+                              key={p.id}
+                              style={{
+                                display: "flex", alignItems: "center", gap: 8, padding: "8px 10px",
+                                borderBottom: `1px solid ${T.hairline}`, fontSize: 11.5, cursor: "pointer",
+                              }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={bulkSelectedIds.has(p.id)}
+                                onChange={() => toggleBulkSelect(p.id)}
+                                style={{ width: 14, height: 14, flexShrink: 0 }}
+                              />
+                              <span style={{ flex: 1, fontWeight: 700, color: T.ink }}>{p.name}</span>
+                              <span style={{ color: T.inkSoft }}>{formatRs(p.price)}</span>
+                            </label>
+                          ))}
+                        </div>
+                        {inCat.length > 150 && (
+                          <div style={{ fontSize: 11, color: T.inkSoft, marginBottom: 8 }}>
+                            પહેલા 150 દેખાય છે. "બધા પસંદ કરો" બટન બધા {inCat.length} પસંદ કરે છે.
+                          </div>
+                        )}
+                      </>
+                    );
+                  })() : (
+                    <div style={{ fontSize: 12, color: "#a49c88", marginBottom: 8 }}>ઉપરથી કેટેગરી પસંદ કરો.</div>
+                  )}
+                  <div style={{ display: "flex", gap: 8 }}>
                     <input
-                      type="checkbox"
-                      checked={bulkSelectedIds.has(p.id)}
-                      onChange={() => toggleBulkSelect(p.id)}
-                      style={{ width: 14, height: 14, flexShrink: 0 }}
+                      type="text"
+                      value={bulkAdjustValue}
+                      onChange={(e) => setBulkAdjustValue(e.target.value)}
+                      placeholder="દા.ત. +10% અથવા -20 (₹)"
+                      style={{ flex: 1, fontSize: 12, padding: "8px 10px", border: `1px solid ${T.hairline}`, borderRadius: 8, background: T.surface2, color: T.ink }}
                     />
-                    <span style={{ flex: 1, fontWeight: 700, color: T.ink }}>{p.name}</span>
-                    <span style={{ color: T.inkSoft }}>{formatRs(p.price)}</span>
-                  </label>
-                ))}
-              </div>
-              <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-                <input
-                  type="text"
-                  value={bulkAdjustValue}
-                  onChange={(e) => setBulkAdjustValue(e.target.value)}
-                  placeholder="દા.ત. +10% અથવા -20 (₹)"
-                  style={{ flex: 1, fontSize: 12, padding: "8px 10px", border: `1px solid ${T.hairline}`, borderRadius: 8, background: T.surface2, color: T.ink }}
-                />
-                <button
-                  onClick={applyBulkPriceAdjust}
-                  disabled={bulkApplying || bulkSelectedIds.size === 0 || !bulkAdjustValue.trim()}
-                  style={{ background: T.orange, color: "#fff", fontWeight: 700, fontSize: 12, padding: "8px 16px", borderRadius: 8, border: "none" }}
-                >
-                  {bulkApplying ? "..." : "Apply"}
-                </button>
-              </div>
+                    <button
+                      onClick={applyBulkPriceAdjust}
+                      disabled={bulkApplying || bulkSelectedIds.size === 0 || !bulkAdjustValue.trim()}
+                      style={{ background: T.orange, color: "#fff", fontWeight: 700, fontSize: 12, padding: "8px 16px", borderRadius: 8, border: "none" }}
+                    >
+                      {bulkApplying ? "..." : "Apply"}
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* ---- 4. Customer List ---- */}
-              <div style={styles.adminSectionTitle}>👥 ગ્રાહકો ({customerList.length})</div>
-              {customerList.length === 0 && <p style={{ color: "#a49c88", fontSize: 12.5, marginBottom: 16 }}>હજુ કોઈ ઓર્ડર નથી.</p>}
-              {customerList.map((c) => (
+              {adminToggleHeader("cust", `👥 ગ્રાહકો (${customerList.length})`)}
+              {adminOpen.cust && customerList.length === 0 && <p style={{ color: "#a49c88", fontSize: 12.5, marginBottom: 16 }}>હજુ કોઈ ઓર્ડર નથી.</p>}
+              {adminOpen.cust && customerList.slice(0, adminMore.cust).map((c) => (
                 <div key={c.phone} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#fff", border: `1px solid ${T.hairline}`, borderRadius: 10, padding: "8px 12px", marginBottom: 8 }}>
                   <div>
                     <div style={{ fontSize: 12, fontWeight: 700, color: T.ink }}>{c.name}</div>
@@ -5882,6 +5989,7 @@ export default function ApniDukanApp() {
                   </a>
                 </div>
               ))}
+              {adminOpen.cust && moreButton("cust", customerList.length)}
               <div style={{ height: 10 }} />
 
             </div>
