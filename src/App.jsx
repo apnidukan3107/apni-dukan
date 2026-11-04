@@ -195,6 +195,42 @@ async function applicationDelete(id) {
 const SELLER_UPLOAD_PREFIX = "sellerupload__";
 const PHOTO_UPLOAD_SELLERS = ["sel-sandhya"];   // only these seller logins see the "ફોટો અપલોડ કરો" button
 const PO_PRINT_SELLERS = ["sel-sandhya"];       // only these seller logins see the "PO પ્રિન્ટ કરો" button
+// The PO is typed in by the seller (no AI, no API key). Bill To, item names, rates and GST are remembered on this phone
+// so the next PO is filled in with a few taps.
+const PO_MEMORY_KEY = "apniDukanPoMemory";
+function poMemoryLoad() {
+  try {
+    const m = JSON.parse(localStorage.getItem(PO_MEMORY_KEY) || "{}");
+    return {
+      parties: Array.isArray(m.parties) ? m.parties : [],
+      items: m.items && typeof m.items === "object" ? m.items : {},
+      lastBillTo: m.lastBillTo || "",
+      lastPayment: m.lastPayment || "",
+    };
+  } catch {
+    return { parties: [], items: {}, lastBillTo: "", lastPayment: "" };
+  }
+}
+function poMemorySave(form) {
+  const m = poMemoryLoad();
+  const bt = String(form.billTo || "").trim();
+  if (bt) m.parties = [bt, ...m.parties.filter((x) => x !== bt)].slice(0, 20);
+  m.lastBillTo = bt;
+  m.lastPayment = String(form.payment || "").trim();
+  (form.items || []).forEach((x) => {
+    const n = String(x.name || "").trim();
+    if (n) { delete m.items[n]; m.items[n] = { rate: x.rate, gst: x.gst, unit: x.unit }; }
+  });
+  const keys = Object.keys(m.items);
+  if (keys.length > 300) keys.slice(0, keys.length - 300).forEach((k) => delete m.items[k]);
+  try { localStorage.setItem(PO_MEMORY_KEY, JSON.stringify(m)); } catch {}
+}
+function blankPoForm(mem) {
+  return {
+    poNo: "", poDate: "", billTo: mem.lastBillTo || "", payment: mem.lastPayment || "", docTotal: null, notes: "",
+    items: [{ name: "", qty: "1", unit: "PC", rate: "", gst: "18" }],
+  };
+}
 // Totals of a purchase order exactly as they are printed on the slip (rounded to paise).
 function poCalc(form) {
   const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
@@ -2698,62 +2734,8 @@ export default function ApniDukanApp() {
   const [poBusy, setPoBusy] = useState(false);
   const [poMsg, setPoMsg] = useState("");
   const [poForm, setPoForm] = useState(null);
+  const [poMemory, setPoMemory] = useState(() => poMemoryLoad());
 
-  async function pickPoFile(e) {
-    const file = e.target.files && e.target.files[0];
-    e.target.value = "";
-    if (!file || !sellerAuth) return;
-    setPoMsg("");
-    setPoBusy(true);
-    try {
-      let mime = file.type;
-      let data = "";
-      if (file.type === "application/pdf") {
-        if (file.size > 3000000) throw new Error("big");
-        data = await new Promise((resolve, reject) => {
-          const r = new FileReader();
-          r.onload = () => resolve(String(r.result).split(",")[1]);
-          r.onerror = reject;
-          r.readAsDataURL(file);
-        });
-      } else if (file.type && file.type.startsWith("image/")) {
-        const url = await compressImageFile(file, 1800, 0.8);
-        mime = "image/jpeg";
-        data = url.split(",")[1];
-      } else {
-        throw new Error("type");
-      }
-      const seller = sellers.find((x) => x.id === sellerAuth.id);
-      const resp = await fetch("/api/po-extract", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sellerId: sellerAuth.id, pin: seller ? seller.pin : "", mime, data }),
-      });
-      const out = await resp.json().catch(() => ({}));
-      if (!resp.ok || !out.po) throw new Error(out.error || "failed");
-      const po = out.po;
-      setPoForm({
-        poNo: po.poNo || "",
-        poDate: po.poDate || "",
-        billTo: po.billTo || "",
-        payment: po.paymentTerms || "",
-        docTotal: po.docTotal,
-        notes: po.notes || "",
-        items: (po.items || []).map((i) => ({
-          name: i.name || "", qty: String(i.qty ?? ""), unit: i.unit || "PC", rate: String(i.rate ?? ""), gst: String(i.gstPct ?? 18),
-        })),
-      });
-    } catch (err) {
-      const m = String((err && err.message) || "");
-      setPoMsg(
-        m === "big" ? "PDF ખૂબ મોટી છે (3 MB થી ઓછી જોઈએ)."
-        : m === "type" ? "ફક્ત PDF અથવા ફોટો પસંદ કરો."
-        : m.includes("limit") ? "આજની PO વાંચવાની મર્યાદા પૂરી થઈ. કાલે ફરી પ્રયત્ન કરો."
-        : "PO વાંચી શકાઈ નથી. ફરી પ્રયત્ન કરો, અથવા વધુ સ્પષ્ટ ફોટો/PDF લો."
-      );
-    }
-    setPoBusy(false);
-  }
   function setPoField(field, value) {
     setPoForm((f) => ({ ...f, [field]: value }));
   }
@@ -2781,6 +2763,8 @@ export default function ApniDukanApp() {
         payment: (poForm.payment || "").trim(),
         items: calc.rows, subTotal: calc.subTotal, gstTotal: calc.gstTotal, total: calc.total,
       });
+      poMemorySave(poForm);
+      setPoMemory(poMemoryLoad());
       setPoForm(null);
       setPoOpen(false);
       setPoMsg("✔ PO ની સ્લિપ પ્રિન્ટ કતારમાં મૂકાઈ ગઈ.");
@@ -5185,7 +5169,7 @@ export default function ApniDukanApp() {
                   return (
                     <div style={{ marginBottom: 12 }}>
                       <button
-                        onClick={() => { setPoOpen((v) => !v); setPoMsg(""); }}
+                        onClick={() => { const next = !poOpen; setPoOpen(next); setPoMsg(""); if (next && !poForm) setPoForm(blankPoForm(poMemory)); }}
                         style={{ width: "100%", padding: "11px 0", borderRadius: 10, border: `1.5px dashed ${T.orange}`, background: "transparent", color: T.orange, fontWeight: 800, fontSize: 14, cursor: "pointer" }}
                       >
                         🧾 PO પ્રિન્ટ કરો
@@ -5195,31 +5179,36 @@ export default function ApniDukanApp() {
                       )}
                       {poOpen && (
                         <div style={{ ...styles.orderCard, marginTop: 8 }}>
-                          {!poForm ? (
-                            <>
-                              <div style={{ fontSize: 12, color: "#6b6555", marginBottom: 8 }}>
-                                PO ની PDF અથવા ફોટો પસંદ કરો. વંચાયા પછી તમે ચકાસીને છાપી શકશો.
-                              </div>
-                              <label style={{ display: "block", cursor: poBusy ? "default" : "pointer" }}>
-                                <input type="file" accept="application/pdf,image/*" onChange={pickPoFile} disabled={poBusy} style={{ display: "none" }} />
-                                <div style={{ border: `1px solid ${T.hairline}`, borderRadius: 8, padding: "12px 0", textAlign: "center", fontSize: 13, fontWeight: 700 }}>
-                                  {poBusy ? "PO વાંચી રહ્યું છે... (10-30 સેકન્ડ)" : "PDF / ફોટો પસંદ કરો"}
-                                </div>
-                              </label>
-                            </>
-                          ) : (
+                          {poForm && (
                             <>
                               <div style={{ fontSize: 11.5, color: "#8a8378", marginBottom: 8 }}>
-                                AI એ વાંચેલું છે. છાપતા પહેલાં દરેક વિગત PO સાથે મેળવી લો.
+                                PO જોઈને વિગત ભરો. પાર્ટી, વસ્તુ, ભાવ અને GST આ ફોનમાં યાદ રહેશે, આગલી વખતે ઝડપથી ભરાશે.
                               </div>
+                              <datalist id="po-parties">{poMemory.parties.map((v) => <option key={v} value={v} />)}</datalist>
+                              <datalist id="po-items">{Object.keys(poMemory.items).map((v) => <option key={v} value={v} />)}</datalist>
                               <div style={{ display: "flex", gap: 6 }}>
                                 <input style={{ ...mi, flex: 1 }} placeholder="PO નંબર" value={poForm.poNo} onChange={(e) => setPoField("poNo", e.target.value)} />
                                 <input style={{ ...mi, width: 108 }} placeholder="PO તારીખ" value={poForm.poDate} onChange={(e) => setPoField("poDate", e.target.value)} />
                               </div>
-                              <input style={{ ...mi, marginTop: 6 }} placeholder="Bill To (પાર્ટીનું નામ)" value={poForm.billTo} onChange={(e) => setPoField("billTo", e.target.value)} />
+                              <input list="po-parties" style={{ ...mi, marginTop: 6 }} placeholder="Bill To (પાર્ટીનું નામ)" value={poForm.billTo} onChange={(e) => setPoField("billTo", e.target.value)} />
                               {poForm.items.map((x, i) => (
                                 <div key={i} style={{ borderTop: `1px dashed ${T.hairline}`, marginTop: 8, paddingTop: 8 }}>
-                                  <input style={mi} placeholder="વસ્તુનું નામ" value={x.name} onChange={(e) => setPoItem(i, "name", e.target.value)} />
+                                  <input
+                                    list="po-items"
+                                    style={mi}
+                                    placeholder="વસ્તુનું નામ"
+                                    value={x.name}
+                                    onChange={(e) => {
+                                      const v = e.target.value;
+                                      setPoItem(i, "name", v);
+                                      const mem = poMemory.items[v];
+                                      if (mem && !x.rate) {
+                                        setPoItem(i, "rate", mem.rate);
+                                        setPoItem(i, "gst", mem.gst);
+                                        setPoItem(i, "unit", mem.unit);
+                                      }
+                                    }}
+                                  />
                                   <div style={{ display: "flex", gap: 6, marginTop: 6, alignItems: "center" }}>
                                     <input type="number" style={{ ...mi, width: 58 }} placeholder="જથ્થો" value={x.qty} onChange={(e) => setPoItem(i, "qty", e.target.value)} />
                                     <input style={{ ...mi, width: 46 }} placeholder="PC" value={x.unit} onChange={(e) => setPoItem(i, "unit", e.target.value)} />
@@ -5239,6 +5228,13 @@ export default function ApniDukanApp() {
                                 + વસ્તુ ઉમેરો
                               </button>
                               <input style={{ ...mi, marginTop: 8 }} placeholder="પેમેન્ટની શરત (વૈકલ્પિક)" value={poForm.payment} onChange={(e) => setPoField("payment", e.target.value)} />
+                              <input
+                                type="number"
+                                style={{ ...mi, marginTop: 8 }}
+                                placeholder="PO માં લખેલો કુલ (ચકાસવા માટે, વૈકલ્પિક)"
+                                value={poForm.docTotal ?? ""}
+                                onChange={(e) => setPoField("docTotal", e.target.value === "" ? null : e.target.value)}
+                              />
                               <div style={{ background: T.surface2, borderRadius: 8, padding: "8px 10px", marginTop: 8, fontSize: 12.5 }}>
                                 <div style={{ display: "flex", justifyContent: "space-between" }}><span>Sub Total</span><span>{rs2(calc.subTotal)}</span></div>
                                 <div style={{ display: "flex", justifyContent: "space-between" }}><span>GST</span><span>{rs2(calc.gstTotal)}</span></div>
@@ -5246,10 +5242,9 @@ export default function ApniDukanApp() {
                               </div>
                               {mismatch && (
                                 <div style={{ fontSize: 12, color: "#b23b3b", fontWeight: 700, marginTop: 6 }}>
-                                  ધ્યાન: PO માં કુલ {rs2(poForm.docTotal)} લખેલું છે, પણ અહીંની ગણતરી {rs2(calc.total)} છે. વિગત ફરી ચકાસો.
+                                  ધ્યાન: PO માં કુલ {rs2(poForm.docTotal)} લખેલું છે, પણ અહીંની ગણતરી {rs2(calc.total)} છે. જથ્થો, ભાવ, GST ફરી ચકાસો.
                                 </div>
                               )}
-                              {poForm.notes && <div style={{ fontSize: 11.5, color: "#8a8378", marginTop: 6 }}>AI ની નોંધ: {poForm.notes}</div>}
                               <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
                                 <button
                                   style={{ ...styles.primaryBtn, marginTop: 0, flex: 1, opacity: poBusy ? 0.5 : 1 }}
