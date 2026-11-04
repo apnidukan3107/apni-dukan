@@ -279,7 +279,51 @@ function paintSlip(ctx, it) {
     y += Math.round(size * 2.1);
   }
 
+  // left text (may wrap) + right-aligned text on the first line
+  function rowLR(left, right, size, bold) {
+    setFont(size);
+    const rw = Math.ceil(ctx.measureText(right).width);
+    const lines = wrap(left, size, Math.max(60, CW - rw - 12));
+    lines.forEach((l, i) => {
+      put(l, PAD, base(size), size, bold, 'left');
+      if (i === 0) put(right, W - PAD, base(size), size, bold, 'right');
+      y += lineH(size);
+    });
+  }
+
   const B = 23, S = 20;
+
+  // ---- purchase order (read from the supplier's PO pdf/photo): only the key details ----
+  if (it.kind === 'po') {
+    const money = (n) => '₹' + Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const plain = (n) => '₹' + Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+    center(str(it.sellerName) || SHOP_NAME, 34, true);
+    center('PURCHASE ORDER', 24, true);
+    dash();
+    rowLR('PO No :', str(it.poNo), B, true);
+    rowLR('PO Date :', str(it.poDate), B, false);
+    dash();
+    put('Bill To:', PAD, base(B), B, true, 'left');
+    y += lineH(B);
+    for (const l of wrap(str(it.billTo), B, CW)) { put(l, PAD, base(B), B, false, 'left'); y += lineH(B); }
+    dash();
+    (it.items || []).forEach((x, i) => {
+      for (const l of wrap(`${i + 1}) ${str(x.name)}`, B, CW)) { put(l, PAD, base(B), B, true, 'left'); y += lineH(B); }
+      rowLR(`${Number(x.qty) || 0} ${str(x.unit)} × ${plain(x.rate)}`, money(x.amount), S, false);
+      rowLR(`GST ${Number(x.gstPct) || 0}%`, money(x.gst), S, false);
+      rowLR('Item total', money(x.total), B, true);
+      y += 4;
+    });
+    dash();
+    rowLR('Sub Total', money(it.subTotal), B, false);
+    rowLR('GST', money(it.gstTotal), B, false);
+    rowLR('TOTAL', money(it.total), 28, true);
+    if (str(it.payment)) { dash(); center(`Payment: ${str(it.payment)}`, S, false); }
+    dash();
+    writeLine('Bill No:', B);   // left blank: filled in by hand after printing
+    return y + 40;
+  }
+
   const isJob = it.kind === 'job';
   const when = fmtDate(new Date(Number(it.t) || Date.now()).toISOString());
 
@@ -343,4 +387,14 @@ export const SAMPLE_JOB = {
 export const SAMPLE_SEL = {
   kind: 'sel', no: 1, shop: 'Ramesh Traders', owner: 'Ramesh Patel',
   mobile: '9876543210', category: 'Hardware', area: 'Naroda, Ahmedabad',
+};
+
+export const SAMPLE_PO = {
+  kind: 'po', sellerName: 'Sandhya Traders', poNo: '4100061111', poDate: '16/10/2026',
+  billTo: 'LUBI INDUSTRIES LLP PLANT-02',
+  items: [
+    { name: 'SCALE RULER 12" SS', qty: 3, unit: 'PC', rate: 80, gstPct: 18, amount: 240, gst: 43.2, total: 283.2 },
+    { name: 'Screw Driver 2 in 1 Philips and slooted', qty: 3, unit: 'PC', rate: 62, gstPct: 18, amount: 186, gst: 33.48, total: 219.48 },
+  ],
+  subTotal: 426, gstTotal: 76.68, total: 502.68, payment: '45 days after receipt of material',
 };
