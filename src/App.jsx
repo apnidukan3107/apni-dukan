@@ -5,7 +5,7 @@ import {
   Pencil, ImagePlus, Tag, MessageSquare, Download, Bell, Store
 } from "lucide-react";
 import { initializeApp } from "firebase/app";
-import { getFirestore, doc, getDoc, setDoc, deleteDoc, onSnapshot, collection, getDocs, writeBatch, increment, runTransaction } from "firebase/firestore";
+import { getFirestore, doc, getDoc, setDoc, deleteDoc, onSnapshot, collection, getDocs, writeBatch, increment, runTransaction, query, where, documentId } from "firebase/firestore";
 import { getMessaging, getToken, isSupported as isMessagingSupported } from "firebase/messaging";
 import { getAnalytics, logEvent } from "firebase/analytics";
 // ✅ VERCEL ANALYTICS - Real-time traffic monitoring
@@ -189,6 +189,65 @@ async function applicationSave(app) {
 }
 async function applicationDelete(id) {
   await deleteDoc(doc(db, "store", applicationKey(id)));
+}
+// ---- Photo uploads from selected sellers (only Sandhya Traders for now) -> admin panel.
+// Same per-document pattern inside the existing "store" collection => no Firestore rules change needed. ----
+const SELLER_UPLOAD_PREFIX = "sellerupload__";
+const PHOTO_UPLOAD_SELLERS = ["sel-sandhya"];   // only these seller logins see the "ફોટો અપલોડ કરો" button
+// Phone photos are 3-5 MB; a Firestore document must stay under 1 MB, so the photo is resized + compressed first.
+function compressImageFile(file, maxDim = 1400, quality = 0.72) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("read failed"));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("bad image"));
+      img.onload = () => {
+        const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+        let q = quality;
+        let out = canvas.toDataURL("image/jpeg", q);
+        while (out.length > 700000 && q > 0.35) {
+          q -= 0.1;
+          out = canvas.toDataURL("image/jpeg", q);
+        }
+        resolve(out);
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+async function sellerUploadSave(up) {
+  const { id, ...rest } = up;
+  await setDoc(doc(db, "store", SELLER_UPLOAD_PREFIX + id), { ...rest, type: "sellerupload" });
+}
+// Loaded only when the admin opens the section (reads just these documents, not the whole collection).
+async function sellerUploadsLoad() {
+  const snap = await getDocs(
+    query(
+      collection(db, "store"),
+      where(documentId(), ">=", SELLER_UPLOAD_PREFIX),
+      where(documentId(), "<", SELLER_UPLOAD_PREFIX + "\uf8ff")
+    )
+  );
+  return snap.docs
+    .map((d) => {
+      const { type, ...fields } = d.data();
+      return { id: d.id.slice(SELLER_UPLOAD_PREFIX.length), ...fields };
+    })
+    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+}
+async function sellerUploadMarkSeen(id) {
+  await setDoc(doc(db, "store", SELLER_UPLOAD_PREFIX + id), { seen: true }, { merge: true });
+}
+async function sellerUploadDelete(id) {
+  await deleteDoc(doc(db, "store", SELLER_UPLOAD_PREFIX + id));
 }
 // Permanent serial numbers (job applications "job", seller registrations "sel"): +1 in one
 // atomic transaction so two people applying at the same moment never get the same number.
@@ -2548,6 +2607,73 @@ export default function ApniDukanApp() {
     );
   }
   const [adminSearchQuery, setAdminSearchQuery] = useState("");
+
+  // ---- seller photo upload (seller side) + admin list of uploaded photos ----
+  const [upOpen, setUpOpen] = useState(false);
+  const [upPhoto, setUpPhoto] = useState("");
+  const [upNote, setUpNote] = useState("");
+  const [upBusy, setUpBusy] = useState(false);
+  const [upMsg, setUpMsg] = useState("");
+  const [adminUploads, setAdminUploads] = useState([]);
+  const [adminUploadsLoading, setAdminUploadsLoading] = useState(false);
+  const [upBigId, setUpBigId] = useState("");
+
+  async function pickSellerPhoto(e) {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    setUpMsg("");
+    try {
+      setUpPhoto(await compressImageFile(file));
+    } catch {
+      setUpMsg("ફોટો વાંચી શકાયો નથી. બીજો ફોટો પસંદ કરો.");
+    }
+  }
+  async function submitSellerPhoto() {
+    if (!upPhoto || !sellerAuth) return;
+    setUpBusy(true);
+    setUpMsg("");
+    try {
+      await sellerUploadSave({
+        id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        sellerId: sellerAuth.id,
+        sellerName: sellerAuth.name,
+        note: upNote.trim(),
+        image: upPhoto,
+        createdAt: Date.now(),
+        seen: false,
+      });
+      setUpPhoto("");
+      setUpNote("");
+      setUpOpen(false);
+      setUpMsg("✔ ફોટો એડમિનને મોકલાઈ ગયો.");
+    } catch (e) {
+      console.error("seller upload failed", e);
+      setUpMsg("ફોટો મોકલી શકાયો નથી. ફરી પ્રયત્ન કરો.");
+    }
+    setUpBusy(false);
+  }
+  async function loadAdminUploads() {
+    setAdminUploadsLoading(true);
+    try {
+      setAdminUploads(await sellerUploadsLoad());
+    } catch (e) {
+      console.error("load uploads failed", e);
+    }
+    setAdminUploadsLoading(false);
+  }
+  useEffect(() => {
+    if (adminOpen.uploads) loadAdminUploads();
+  }, [adminOpen.uploads]);
+  async function seenAdminUpload(id) {
+    setAdminUploads((l) => l.map((x) => (x.id === id ? { ...x, seen: true } : x)));
+    try { await sellerUploadMarkSeen(id); } catch {}
+  }
+  async function removeAdminUpload(id) {
+    if (!window.confirm("આ ફોટો કાઢી નાખવો?")) return;
+    setAdminUploads((l) => l.filter((x) => x.id !== id));
+    try { await sellerUploadDelete(id); } catch {}
+  }
   const adminListed = useMemo(() => {
     const q = adminSearchQuery.trim().toLowerCase();
     if (q) return products.filter((p) => (p.name || "").toLowerCase().includes(q));
@@ -4897,6 +5023,44 @@ export default function ApniDukanApp() {
                   {statBox("આ મહિનાનું વેચાણ", formatRs(monthTotal))}
                 </div>
 
+                {PHOTO_UPLOAD_SELLERS.includes(sellerAuth.id) && (
+                  <div style={{ marginBottom: 12 }}>
+                    <button
+                      onClick={() => { setUpOpen((v) => !v); setUpMsg(""); }}
+                      style={{ width: "100%", padding: "11px 0", borderRadius: 10, border: `1.5px dashed ${T.orange}`, background: "transparent", color: T.orange, fontWeight: 800, fontSize: 14, cursor: "pointer" }}
+                    >
+                      📷 ફોટો અપલોડ કરો
+                    </button>
+                    {upMsg && (
+                      <div style={{ fontSize: 12.5, marginTop: 6, fontWeight: 700, color: upMsg.startsWith("✔") ? "#2e7d4f" : "#b23b3b" }}>{upMsg}</div>
+                    )}
+                    {upOpen && (
+                      <div style={{ ...styles.orderCard, marginTop: 8 }}>
+                        <label style={{ display: "block", cursor: "pointer" }}>
+                          <input type="file" accept="image/*" onChange={pickSellerPhoto} style={{ display: "none" }} />
+                          <div style={{ border: `1px solid ${T.hairline}`, borderRadius: 8, padding: "10px 0", textAlign: "center", fontSize: 13, fontWeight: 700 }}>
+                            {upPhoto ? "બીજો ફોટો પસંદ કરો" : "ફોટો પસંદ કરો / કેમેરા ખોલો"}
+                          </div>
+                        </label>
+                        {upPhoto && <img src={upPhoto} alt="પસંદ કરેલો ફોટો" style={{ width: "100%", borderRadius: 8, marginTop: 8 }} />}
+                        <input
+                          style={{ ...styles.textInput, marginTop: 8 }}
+                          placeholder="નોંધ (વૈકલ્પિક)"
+                          value={upNote}
+                          onChange={(e) => setUpNote(e.target.value)}
+                        />
+                        <button
+                          style={{ ...styles.primaryBtn, marginTop: 8, opacity: upPhoto && !upBusy ? 1 : 0.5 }}
+                          disabled={!upPhoto || upBusy}
+                          onClick={submitSellerPhoto}
+                        >
+                          {upBusy ? "મોકલાય છે..." : "સબમિટ કરો"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
                   {tabBtn("orders", "ઓર્ડર")}
                   {tabBtn("stock", "સ્ટોક")}
@@ -5972,6 +6136,62 @@ export default function ApniDukanApp() {
                       {bulkApplying ? "..." : "Apply"}
                     </button>
                   </div>
+                </div>
+              )}
+
+              {/* ---- Seller photo uploads ---- */}
+              {adminToggleHeader("uploads", `📷 સેલર અપલોડ${adminOpen.uploads ? ` (${adminUploads.length})` : ""}`)}
+              {adminOpen.uploads && (
+                <div style={{ marginBottom: 16 }}>
+                  <button
+                    style={{ border: `1px solid ${T.hairline}`, background: "transparent", borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", marginBottom: 8 }}
+                    onClick={loadAdminUploads}
+                  >
+                    {adminUploadsLoading ? "લોડ થાય છે..." : "🔄 તાજું કરો"}
+                  </button>
+                  {!adminUploadsLoading && adminUploads.length === 0 && (
+                    <p style={{ color: "#a49c88", fontSize: 12.5 }}>હજુ કોઈ ફોટો આવ્યો નથી.</p>
+                  )}
+                  {adminUploads.map((x) => (
+                    <div key={x.id} style={{ ...styles.orderCard, marginBottom: 10, ...(x.seen ? { opacity: 0.65 } : {}) }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                        <span style={{ fontWeight: 800, fontSize: 13 }}>{x.sellerName || "સેલર"}</span>
+                        <span style={{ fontSize: 11, color: "#8a8378" }}>
+                          {x.createdAt ? new Date(x.createdAt).toLocaleString("gu-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : ""}
+                        </span>
+                      </div>
+                      {x.note && <div style={{ fontSize: 12.5, marginTop: 4, whiteSpace: "pre-wrap" }}>{x.note}</div>}
+                      <img
+                        src={x.image}
+                        alt="સેલરનો ફોટો"
+                        onClick={() => setUpBigId(upBigId === x.id ? "" : x.id)}
+                        style={{ width: upBigId === x.id ? "100%" : 120, borderRadius: 8, marginTop: 8, cursor: "pointer", display: "block" }}
+                      />
+                      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                        <a
+                          href={x.image}
+                          download={`seller-photo-${x.id}.jpg`}
+                          style={{ border: `1px solid ${T.hairline}`, borderRadius: 8, padding: "6px 10px", fontSize: 12, fontWeight: 700, textDecoration: "none", color: T.ink }}
+                        >
+                          ⬇ ડાઉનલોડ
+                        </a>
+                        {!x.seen && (
+                          <button
+                            style={{ border: "none", background: T.orange, color: "#fff", borderRadius: 8, padding: "6px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+                            onClick={() => seenAdminUpload(x.id)}
+                          >
+                            ✓ જોયું
+                          </button>
+                        )}
+                        <button
+                          style={{ border: `1px solid ${T.hairline}`, background: "transparent", borderRadius: 8, padding: "6px 10px", fontSize: 12, cursor: "pointer" }}
+                          onClick={() => removeAdminUpload(x.id)}
+                        >
+                          ✕ કાઢો
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
 
