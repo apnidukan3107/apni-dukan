@@ -7,11 +7,11 @@
 //   GET /api/print?action=statuspage      -> status page (open in the phone browser, add ?key=...)
 //   action=status | check | pcheck | fail  -> used by the status page and the ESP32
 //   GET /api/print?action=preview&id=ORDERID  (or id=sample) -> PNG preview in the browser
-//   Job application / seller registration slips: queued by the app in printState.queue (ids ja_... / sr_...),
+//   Job application / seller registration slips: queued by the app in printState.queue (ids ja_... / sr_... / po_...),
 //   preview with id=sample_job or id=sample_sel. They print in the same line as orders, oldest first.
 // Auth: header "x-print-key" (or ?key=) must equal the PRINT_KEY env variable.
 import { getDb } from './_lib/firebase.mjs';
-import { renderBill, renderSlip, toEscPos, SAMPLE_ORDER, SAMPLE_JOB, SAMPLE_SEL } from './_lib/bill.mjs';
+import { renderBill, renderSlip, toEscPos, SAMPLE_ORDER, SAMPLE_JOB, SAMPLE_SEL, SAMPLE_PO } from './_lib/bill.mjs';
 import { FieldValue } from 'firebase-admin/firestore';
 import { buildStatus, STATUS_HTML } from './_lib/statuspage.mjs';
 
@@ -83,10 +83,11 @@ export default async function handler(req, res) {
       return res.status(200).json(pick ? { id: pick.id, orderNumber: pick.orderNumber, ...extra } : { none: true, ...extra });
     }
 
-    if ((action === 'job' || action === 'preview') && (/^(ja|sr)_[A-Za-z0-9_-]+$/.test(id) || id === 'sample_job' || id === 'sample_sel')) {
+    if ((action === 'job' || action === 'preview') && (/^(ja|sr|po)_[A-Za-z0-9_-]+$/.test(id) || id === 'sample_job' || id === 'sample_sel' || id === 'sample_po')) {
       let item;
       if (id === 'sample_job') item = { ...SAMPLE_JOB, t: Date.now() };
       else if (id === 'sample_sel') item = { ...SAMPLE_SEL, t: Date.now() };
+      else if (id === 'sample_po') item = { ...SAMPLE_PO, t: Date.now() };
       else {
         const qs = await stateRef.get();
         item = qs.exists ? (qs.data().queue || {})[id] : null;
@@ -140,7 +141,7 @@ export default async function handler(req, res) {
     if (action === 'done') {
       const ms = parseInt(String(req.query.ms || ''), 10);
       const patch = { lastPrintedAt: new Date().toISOString(), lastPrintedId: id, lastPrintMs: Number.isFinite(ms) ? ms : null };
-      if (/^(ja|sr)_[A-Za-z0-9_-]+$/.test(id)) {
+      if (/^(ja|sr|po)_[A-Za-z0-9_-]+$/.test(id)) {
         // printed slip: take it out of the queue
         await stateRef.update({ ...patch, ['queue.' + id]: FieldValue.delete() });
         return res.status(200).json({ ok: true });
