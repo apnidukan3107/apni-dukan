@@ -194,6 +194,24 @@ async function applicationDelete(id) {
 // Same per-document pattern inside the existing "store" collection => no Firestore rules change needed. ----
 const SELLER_UPLOAD_PREFIX = "sellerupload__";
 const PHOTO_UPLOAD_SELLERS = ["sel-sandhya"];   // only these seller logins see the "ફોટો અપલોડ કરો" button
+const PO_PRINT_SELLERS = ["sel-sandhya"];       // only these seller logins see the "PO પ્રિન્ટ કરો" button
+// Totals of a purchase order exactly as they are printed on the slip (rounded to paise).
+function poCalc(form) {
+  const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+  const rows = (form.items || [])
+    .map((x) => {
+      const qty = Number(x.qty) || 0;
+      const rate = Number(x.rate) || 0;
+      const gstPct = Number(x.gst) || 0;
+      const amount = r2(qty * rate);
+      const gst = r2((amount * gstPct) / 100);
+      return { name: String(x.name || "").trim(), qty, unit: String(x.unit || "PC").trim(), rate, gstPct, amount, gst, total: r2(amount + gst) };
+    })
+    .filter((x) => x.name && x.qty > 0);
+  const subTotal = r2(rows.reduce((a, x) => a + x.amount, 0));
+  const gstTotal = r2(rows.reduce((a, x) => a + x.gst, 0));
+  return { rows, subTotal, gstTotal, total: r2(subTotal + gstTotal) };
+}
 // Phone photos are 3-5 MB; a Firestore document must stay under 1 MB, so the photo is resized + compressed first.
 function compressImageFile(file, maxDim = 1400, quality = 0.72) {
   return new Promise((resolve, reject) => {
@@ -2674,6 +2692,104 @@ export default function ApniDukanApp() {
     setAdminUploads((l) => l.filter((x) => x.id !== id));
     try { await sellerUploadDelete(id); } catch {}
   }
+
+  // ---- PO -> thermal slip: AI reads the PDF / photo, the seller checks the details, then it is printed ----
+  const [poOpen, setPoOpen] = useState(false);
+  const [poBusy, setPoBusy] = useState(false);
+  const [poMsg, setPoMsg] = useState("");
+  const [poForm, setPoForm] = useState(null);
+
+  async function pickPoFile(e) {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file || !sellerAuth) return;
+    setPoMsg("");
+    setPoBusy(true);
+    try {
+      let mime = file.type;
+      let data = "";
+      if (file.type === "application/pdf") {
+        if (file.size > 3000000) throw new Error("big");
+        data = await new Promise((resolve, reject) => {
+          const r = new FileReader();
+          r.onload = () => resolve(String(r.result).split(",")[1]);
+          r.onerror = reject;
+          r.readAsDataURL(file);
+        });
+      } else if (file.type && file.type.startsWith("image/")) {
+        const url = await compressImageFile(file, 1800, 0.8);
+        mime = "image/jpeg";
+        data = url.split(",")[1];
+      } else {
+        throw new Error("type");
+      }
+      const seller = sellers.find((x) => x.id === sellerAuth.id);
+      const resp = await fetch("/api/po-extract", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sellerId: sellerAuth.id, pin: seller ? seller.pin : "", mime, data }),
+      });
+      const out = await resp.json().catch(() => ({}));
+      if (!resp.ok || !out.po) throw new Error(out.error || "failed");
+      const po = out.po;
+      setPoForm({
+        poNo: po.poNo || "",
+        poDate: po.poDate || "",
+        billTo: po.billTo || "",
+        payment: po.paymentTerms || "",
+        docTotal: po.docTotal,
+        notes: po.notes || "",
+        items: (po.items || []).map((i) => ({
+          name: i.name || "", qty: String(i.qty ?? ""), unit: i.unit || "PC", rate: String(i.rate ?? ""), gst: String(i.gstPct ?? 18),
+        })),
+      });
+    } catch (err) {
+      const m = String((err && err.message) || "");
+      setPoMsg(
+        m === "big" ? "PDF ખૂબ મોટી છે (3 MB થી ઓછી જોઈએ)."
+        : m === "type" ? "ફક્ત PDF અથવા ફોટો પસંદ કરો."
+        : m.includes("limit") ? "આજની PO વાંચવાની મર્યાદા પૂરી થઈ. કાલે ફરી પ્રયત્ન કરો."
+        : "PO વાંચી શકાઈ નથી. ફરી પ્રયત્ન કરો, અથવા વધુ સ્પષ્ટ ફોટો/PDF લો."
+      );
+    }
+    setPoBusy(false);
+  }
+  function setPoField(field, value) {
+    setPoForm((f) => ({ ...f, [field]: value }));
+  }
+  function setPoItem(idx, field, value) {
+    setPoForm((f) => ({ ...f, items: f.items.map((x, i) => (i === idx ? { ...x, [field]: value } : x)) }));
+  }
+  function addPoItem() {
+    setPoForm((f) => ({ ...f, items: [...f.items, { name: "", qty: "1", unit: "PC", rate: "", gst: "18" }] }));
+  }
+  function removePoItem(idx) {
+    setPoForm((f) => ({ ...f, items: f.items.filter((_, i) => i !== idx) }));
+  }
+  async function printPo() {
+    if (!poForm || !sellerAuth) return;
+    const calc = poCalc(poForm);
+    if (!poForm.poNo.trim()) { setPoMsg("PO નંબર લખો."); return; }
+    if (calc.rows.length === 0) { setPoMsg("ઓછામાં ઓછી એક વસ્તુ (નામ અને જથ્થા સાથે) જોઈએ."); return; }
+    setPoBusy(true);
+    setPoMsg("");
+    try {
+      const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      await queuePrint("po_" + id, {
+        kind: "po", no: 0, t: Date.now(), sellerName: sellerAuth.name,
+        poNo: poForm.poNo.trim(), poDate: poForm.poDate.trim(), billTo: poForm.billTo.trim(),
+        payment: (poForm.payment || "").trim(),
+        items: calc.rows, subTotal: calc.subTotal, gstTotal: calc.gstTotal, total: calc.total,
+      });
+      setPoForm(null);
+      setPoOpen(false);
+      setPoMsg("✔ PO ની સ્લિપ પ્રિન્ટ કતારમાં મૂકાઈ ગઈ.");
+    } catch (e) {
+      console.error("po print queue failed", e);
+      setPoMsg("પ્રિન્ટ કતારમાં મૂકી શકાયું નથી. ફરી પ્રયત્ન કરો.");
+    }
+    setPoBusy(false);
+  }
   const adminListed = useMemo(() => {
     const q = adminSearchQuery.trim().toLowerCase();
     if (q) return products.filter((p) => (p.name || "").toLowerCase().includes(q));
@@ -5060,6 +5176,102 @@ export default function ApniDukanApp() {
                     )}
                   </div>
                 )}
+
+                {PO_PRINT_SELLERS.includes(sellerAuth.id) && (() => {
+                  const calc = poForm ? poCalc(poForm) : null;
+                  const mismatch = poForm && poForm.docTotal != null && calc && Math.abs(Number(poForm.docTotal) - calc.total) > 1;
+                  const mi = { ...styles.textInput, padding: "6px 8px", fontSize: 12.5 };
+                  const rs2 = (n) => `₹${(Number(n) || 0).toFixed(2)}`;
+                  return (
+                    <div style={{ marginBottom: 12 }}>
+                      <button
+                        onClick={() => { setPoOpen((v) => !v); setPoMsg(""); }}
+                        style={{ width: "100%", padding: "11px 0", borderRadius: 10, border: `1.5px dashed ${T.orange}`, background: "transparent", color: T.orange, fontWeight: 800, fontSize: 14, cursor: "pointer" }}
+                      >
+                        🧾 PO પ્રિન્ટ કરો
+                      </button>
+                      {poMsg && (
+                        <div style={{ fontSize: 12.5, marginTop: 6, fontWeight: 700, color: poMsg.startsWith("✔") ? "#2e7d4f" : "#b23b3b" }}>{poMsg}</div>
+                      )}
+                      {poOpen && (
+                        <div style={{ ...styles.orderCard, marginTop: 8 }}>
+                          {!poForm ? (
+                            <>
+                              <div style={{ fontSize: 12, color: "#6b6555", marginBottom: 8 }}>
+                                PO ની PDF અથવા ફોટો પસંદ કરો. વંચાયા પછી તમે ચકાસીને છાપી શકશો.
+                              </div>
+                              <label style={{ display: "block", cursor: poBusy ? "default" : "pointer" }}>
+                                <input type="file" accept="application/pdf,image/*" onChange={pickPoFile} disabled={poBusy} style={{ display: "none" }} />
+                                <div style={{ border: `1px solid ${T.hairline}`, borderRadius: 8, padding: "12px 0", textAlign: "center", fontSize: 13, fontWeight: 700 }}>
+                                  {poBusy ? "PO વાંચી રહ્યું છે... (10-30 સેકન્ડ)" : "PDF / ફોટો પસંદ કરો"}
+                                </div>
+                              </label>
+                            </>
+                          ) : (
+                            <>
+                              <div style={{ fontSize: 11.5, color: "#8a8378", marginBottom: 8 }}>
+                                AI એ વાંચેલું છે. છાપતા પહેલાં દરેક વિગત PO સાથે મેળવી લો.
+                              </div>
+                              <div style={{ display: "flex", gap: 6 }}>
+                                <input style={{ ...mi, flex: 1 }} placeholder="PO નંબર" value={poForm.poNo} onChange={(e) => setPoField("poNo", e.target.value)} />
+                                <input style={{ ...mi, width: 108 }} placeholder="PO તારીખ" value={poForm.poDate} onChange={(e) => setPoField("poDate", e.target.value)} />
+                              </div>
+                              <input style={{ ...mi, marginTop: 6 }} placeholder="Bill To (પાર્ટીનું નામ)" value={poForm.billTo} onChange={(e) => setPoField("billTo", e.target.value)} />
+                              {poForm.items.map((x, i) => (
+                                <div key={i} style={{ borderTop: `1px dashed ${T.hairline}`, marginTop: 8, paddingTop: 8 }}>
+                                  <input style={mi} placeholder="વસ્તુનું નામ" value={x.name} onChange={(e) => setPoItem(i, "name", e.target.value)} />
+                                  <div style={{ display: "flex", gap: 6, marginTop: 6, alignItems: "center" }}>
+                                    <input type="number" style={{ ...mi, width: 58 }} placeholder="જથ્થો" value={x.qty} onChange={(e) => setPoItem(i, "qty", e.target.value)} />
+                                    <input style={{ ...mi, width: 46 }} placeholder="PC" value={x.unit} onChange={(e) => setPoItem(i, "unit", e.target.value)} />
+                                    <input type="number" style={{ ...mi, flex: 1 }} placeholder="ભાવ" value={x.rate} onChange={(e) => setPoItem(i, "rate", e.target.value)} />
+                                    <input type="number" style={{ ...mi, width: 56 }} placeholder="GST%" value={x.gst} onChange={(e) => setPoItem(i, "gst", e.target.value)} />
+                                    <span style={{ color: "#c0392b", cursor: "pointer", fontWeight: 800, padding: "0 4px" }} onClick={() => removePoItem(i)}>✕</span>
+                                  </div>
+                                  <div style={{ fontSize: 11, color: "#6b6555", marginTop: 3 }}>
+                                    વસ્તુનો કુલ (GST સાથે): {rs2((Number(x.qty) || 0) * (Number(x.rate) || 0) * (1 + (Number(x.gst) || 0) / 100))}
+                                  </div>
+                                </div>
+                              ))}
+                              <button
+                                style={{ border: `1px solid ${T.hairline}`, background: "transparent", borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", marginTop: 8 }}
+                                onClick={addPoItem}
+                              >
+                                + વસ્તુ ઉમેરો
+                              </button>
+                              <input style={{ ...mi, marginTop: 8 }} placeholder="પેમેન્ટની શરત (વૈકલ્પિક)" value={poForm.payment} onChange={(e) => setPoField("payment", e.target.value)} />
+                              <div style={{ background: T.surface2, borderRadius: 8, padding: "8px 10px", marginTop: 8, fontSize: 12.5 }}>
+                                <div style={{ display: "flex", justifyContent: "space-between" }}><span>Sub Total</span><span>{rs2(calc.subTotal)}</span></div>
+                                <div style={{ display: "flex", justifyContent: "space-between" }}><span>GST</span><span>{rs2(calc.gstTotal)}</span></div>
+                                <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 800, fontSize: 14, marginTop: 2 }}><span>TOTAL</span><span>{rs2(calc.total)}</span></div>
+                              </div>
+                              {mismatch && (
+                                <div style={{ fontSize: 12, color: "#b23b3b", fontWeight: 700, marginTop: 6 }}>
+                                  ધ્યાન: PO માં કુલ {rs2(poForm.docTotal)} લખેલું છે, પણ અહીંની ગણતરી {rs2(calc.total)} છે. વિગત ફરી ચકાસો.
+                                </div>
+                              )}
+                              {poForm.notes && <div style={{ fontSize: 11.5, color: "#8a8378", marginTop: 6 }}>AI ની નોંધ: {poForm.notes}</div>}
+                              <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                                <button
+                                  style={{ ...styles.primaryBtn, marginTop: 0, flex: 1, opacity: poBusy ? 0.5 : 1 }}
+                                  disabled={poBusy}
+                                  onClick={printPo}
+                                >
+                                  {poBusy ? "મોકલાય છે..." : "🖨 પ્રિન્ટ કરો"}
+                                </button>
+                                <button
+                                  style={{ border: `1px solid ${T.hairline}`, background: "transparent", borderRadius: 8, padding: "0 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}
+                                  onClick={() => { setPoForm(null); setPoMsg(""); }}
+                                >
+                                  રદ કરો
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
                   {tabBtn("orders", "ઓર્ડર")}
