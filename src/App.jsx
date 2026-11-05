@@ -933,6 +933,21 @@ async function resetMjTributeCount() {
 const CATEGORIES_DEFAULT = ["Handtools", "Belt", "Oil Seal", "Safety Material", "બીજું", "Maintenance Products", "Pneumatic Fittings", "Nut Bolt N Washer", "Shaurya Stationary"];
 // Tabs that always show on the home screen, even before any product is added.
 const ALWAYS_SHOW_CATEGORIES = ["Shaurya Stationary"];
+// Sub-categories (the small chips under a category). Built-in lists + the ones the admin adds from the product form.
+const SUBCATS_DEFAULT = {
+  "Handtools": ["Taparia", "Stanley", "Dong Chen", "Jet", "Jainson"],
+  "Belt": ["V Belt", "Lifting Belt"],
+  "Nut Bolt N Washer": ["NUT", "Hex Bolt", "Washer", "Pan Phillip Screws"],
+};
+const GROCERY_SUBCATS_DEFAULT = ["Atta & Rice", "Dal & Pulses", "Oil & Ghee", "Sugar, Tea & Coffee", "Masala & Spices", "Dairy & Milk", "Biscuits & Snacks", "Soap & Cleaning"];
+function isGroceryCategory(c) {
+  return /grocer|ગ્રોસરી|કરિયાણ/i.test(String(c || ""));
+}
+function subcatsFor(cat, custom) {
+  const base = SUBCATS_DEFAULT[cat] || (isGroceryCategory(cat) ? GROCERY_SUBCATS_DEFAULT : []);
+  const extra = (custom && custom[cat]) || [];
+  return Array.from(new Set([...base, ...extra]));
+}
 const ADMIN_PIN = "1609";
 
 // ---- Sellers: small vepari (Sandhya Traders, B.M. Traders, Deepankit) ----
@@ -2407,9 +2422,6 @@ export default function ApniDukanApp() {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("બધું");
   const [subcategory, setSubcategory] = useState("બધું");
-  const NUT_BOLT_SUBCATS = ["બધું", "NUT", "Hex Bolt", "Washer", "Pan Phillip Screws"];
-  const HANDTOOLS_SUBCATS = ["બધું", "Taparia", "Stanley", "Dong Chen", "Jet", "Jainson"];
-  const BELT_SUBCATS = ["બધું", "V Belt", "Lifting Belt"];
   const ENQUIRY_CAT = "નવી પૂછપરછ";
   const [enquiryName, setEnquiryName] = useState("");
   const [sizeInputs, setSizeInputs] = useState({});
@@ -2516,7 +2528,10 @@ export default function ApniDukanApp() {
   const [printQueue, setPrintQueue] = useState([]);
   const [pinInput, setPinInput] = useState("");
   const [pinError, setPinError] = useState("");
-  const [newProduct, setNewProduct] = useState({ name: "", category: "કપડાં", price: "", img: "🛍️", image: "", stock: "", sellerId: "" });
+  const [newProduct, setNewProduct] = useState({ name: "", category: "કપડાં", subcategory: "", price: "", img: "🛍️", image: "", stock: "", sellerId: "" });
+  const [subcatCustom, setSubcatCustom] = useState({});
+  const [newSubName, setNewSubName] = useState("");
+  const [adminSub, setAdminSub] = useState("");
   const [editingProductId, setEditingProductId] = useState(null);
 
   // sellers (Sandhya Traders, B.M. Traders, Deepankit, etc.)
@@ -3118,9 +3133,15 @@ export default function ApniDukanApp() {
   const adminListed = useMemo(() => {
     const q = adminSearchQuery.trim().toLowerCase();
     if (q) return products.filter((p) => (p.name || "").toLowerCase().includes(q));
-    if (adminCat) return products.filter((p) => (p.category || "અન્ય") === adminCat);
+    if (adminCat) {
+      return products.filter(
+        (p) =>
+          (p.category || "અન્ય") === adminCat &&
+          (!adminSub || (adminSub === "અન્ય" ? !p.subcategory : p.subcategory === adminSub))
+      );
+    }
     return [];
-  }, [products, adminSearchQuery, adminCat]);
+  }, [products, adminSearchQuery, adminCat, adminSub]);
   // Which date-group headers are expanded in the admin Orders list. The
   // most recent date starts open; older dates stay collapsed until tapped,
   // so there's no more endless scrolling to find today's orders.
@@ -3196,6 +3217,13 @@ export default function ApniDukanApp() {
           cats = [];
         }
         setCustomCategories(cats || []);
+        try {
+          const resSub = await storageGet("subcategories");
+          const sc = resSub ? JSON.parse(resSub.value) : {};
+          setSubcatCustom(sc && typeof sc === "object" ? sc : {});
+        } catch {
+          setSubcatCustom({});
+        }
       } catch (e) {
         setLoadError("ડેટા લોડ કરવામાં તકલીફ થઈ. ફરી પ્રયત્ન કરો.");
       } finally {
@@ -3559,13 +3587,14 @@ export default function ApniDukanApp() {
     return products.filter((p) => {
       const matchCat = category === "બધું" || p.category === category;
       const matchSubcat =
-        (category !== "Nut Bolt N Washer" && category !== "Belt" && category !== "Handtools") ||
+        subcatsFor(category, subcatCustom).length === 0 ||
         subcategory === "બધું" ||
-        p.subcategory === subcategory;
+        p.subcategory === subcategory ||
+        (subcategory === "અન્ય" && !p.subcategory);
       const matchQuery = (p.name || "").toLowerCase().includes(query.toLowerCase());
       return matchCat && matchSubcat && matchQuery;
     });
-  }, [products, query, category, subcategory]);
+  }, [products, query, category, subcategory, subcatCustom]);
 
   const cartItems = useMemo(() => {
     return Object.entries(cart)
@@ -3938,6 +3967,7 @@ export default function ApniDukanApp() {
         id: editingProductId,
         name: newProduct.name.trim(),
         category: newProduct.category,
+        subcategory: newProduct.subcategory || "",
         price: Number(newProduct.price),
         img: newProduct.img || "🛍️",
         image: newProduct.image || existing.image,
@@ -3949,6 +3979,7 @@ export default function ApniDukanApp() {
         id: uid("p"),
         name: newProduct.name.trim(),
         category: newProduct.category,
+        ...(newProduct.subcategory ? { subcategory: newProduct.subcategory } : {}),
         price: Number(newProduct.price),
         img: newProduct.img || "🛍️",
         image: newProduct.image || undefined,
@@ -3956,7 +3987,7 @@ export default function ApniDukanApp() {
         sellerId: newProduct.sellerId || null,
       };
     }
-    setNewProduct({ name: "", category: newProduct.category, price: "", img: "🛍️", image: "", stock: "", sellerId: newProduct.sellerId });
+    setNewProduct({ name: "", category: newProduct.category, subcategory: newProduct.subcategory, price: "", img: "🛍️", image: "", stock: "", sellerId: newProduct.sellerId });
     setEditingProductId(null);
     try {
       await productSave(p);
@@ -3968,6 +3999,7 @@ export default function ApniDukanApp() {
     setNewProduct({
       name: p.name || "",
       category: p.category || allCategoryOptions[0] || "",
+      subcategory: p.subcategory || "",
       price: p.price != null ? String(p.price) : "",
       img: p.img || "🛍️",
       image: p.image || "",
@@ -3978,7 +4010,23 @@ export default function ApniDukanApp() {
 
   function cancelEditProduct() {
     setEditingProductId(null);
-    setNewProduct({ name: "", category: newProduct.category, price: "", img: "🛍️", image: "", stock: "", sellerId: newProduct.sellerId });
+    setNewProduct({ name: "", category: newProduct.category, subcategory: newProduct.subcategory, price: "", img: "🛍️", image: "", stock: "", sellerId: newProduct.sellerId });
+  }
+
+  async function saveSubcatCustom(next) {
+    setSubcatCustom(next);
+    try { await storageSet("subcategories", JSON.stringify(next)); } catch {}
+  }
+  async function addSubcategory(cat, name) {
+    const n = String(name || "").trim();
+    if (!cat || !n) return false;
+    if (subcatsFor(cat, subcatCustom).some((x) => x.toLowerCase() === n.toLowerCase())) return false;
+    await saveSubcatCustom({ ...subcatCustom, [cat]: [...(subcatCustom[cat] || []), n] });
+    return true;
+  }
+  async function removeSubcategory(cat, name) {
+    if (!window.confirm(`"${name}" પેટા કેટેગરી કાઢી નાખવી? (પ્રોડક્ટ્સ કાઢવામાં નહીં આવે)`)) return;
+    await saveSubcatCustom({ ...subcatCustom, [cat]: (subcatCustom[cat] || []).filter((x) => x !== name) });
   }
 
   function handleProductImageFile(file) {
@@ -4353,49 +4401,13 @@ export default function ApniDukanApp() {
                 + {ENQUIRY_CAT}
               </button>
             </div>
-            {category === "Nut Bolt N Washer" && (
+            {subcatsFor(category, subcatCustom).length > 0 && (
               <div style={{ ...styles.catRow, paddingTop: 0 }}>
-                {NUT_BOLT_SUBCATS.map((sc) => (
-                  <button
-                    key={sc}
-                    onClick={() => setSubcategory(sc)}
-                    style={{
-                      ...styles.catChip,
-                      fontSize: 11,
-                      padding: "6px 12px 5px",
-                      ...(subcategory === sc
-                        ? { background: T.orange, color: "#fff", borderColor: T.orange }
-                        : { background: "#fff", color: T.inkSoft }),
-                    }}
-                  >
-                    {sc}
-                  </button>
-                ))}
-              </div>
-            )}
-            {category === "Belt" && (
-              <div style={{ ...styles.catRow, paddingTop: 0 }}>
-                {BELT_SUBCATS.map((sc) => (
-                  <button
-                    key={sc}
-                    onClick={() => setSubcategory(sc)}
-                    style={{
-                      ...styles.catChip,
-                      fontSize: 11,
-                      padding: "6px 12px 5px",
-                      ...(subcategory === sc
-                        ? { background: T.orange, color: "#fff", borderColor: T.orange }
-                        : { background: "#fff", color: T.inkSoft }),
-                    }}
-                  >
-                    {sc}
-                  </button>
-                ))}
-              </div>
-            )}
-            {category === "Handtools" && (
-              <div style={{ ...styles.catRow, paddingTop: 0 }}>
-                {HANDTOOLS_SUBCATS.map((sc) => (
+                {[
+                  "બધું",
+                  ...subcatsFor(category, subcatCustom),
+                  ...(products.some((p) => p.category === category && !p.subcategory) ? ["અન્ય"] : []),
+                ].map((sc) => (
                   <button
                     key={sc}
                     onClick={() => setSubcategory(sc)}
@@ -6353,7 +6365,7 @@ export default function ApniDukanApp() {
                 <select
                   style={{ ...styles.textInput, flex: 1 }}
                   value={newProduct.category}
-                  onChange={(e) => setNewProduct((f) => ({ ...f, category: e.target.value }))}
+                  onChange={(e) => setNewProduct((f) => ({ ...f, category: e.target.value, subcategory: "" }))}
                 >
                   {allCategoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
@@ -6365,6 +6377,60 @@ export default function ApniDukanApp() {
                   onChange={(e) => setNewProduct((f) => ({ ...f, price: e.target.value }))}
                 />
               </div>
+              {(() => {
+                const cat = newProduct.category;
+                const subs = subcatsFor(cat, subcatCustom);
+                const customOnes = subcatCustom[cat] || [];
+                const chip = (on) => ({
+                  border: `1px solid ${on ? T.orange : T.hairline}`, borderRadius: 999, padding: "5px 11px", fontSize: 12, fontWeight: 700,
+                  cursor: "pointer", background: on ? T.orange : "#fff", color: on ? "#fff" : T.inkSoft,
+                });
+                return (
+                  <div style={{ marginTop: 8 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>
+                      પેટા કેટેગરી {subs.length === 0 ? <span style={{ fontWeight: 400, color: "#8a8378" }}>(આ કેટેગરીમાં હજી નથી, નીચેથી ઉમેરો)</span> : ""}
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {subs.length > 0 && (
+                        <button style={chip(!newProduct.subcategory)} onClick={() => setNewProduct((f) => ({ ...f, subcategory: "" }))}>કોઈ નહીં</button>
+                      )}
+                      {subs.map((sc) => (
+                        <button key={sc} style={chip(newProduct.subcategory === sc)} onClick={() => setNewProduct((f) => ({ ...f, subcategory: sc }))}>
+                          {sc}
+                          {customOnes.includes(sc) && (
+                            <span
+                              style={{ marginLeft: 6, color: newProduct.subcategory === sc ? "#fff" : "#c0392b" }}
+                              onClick={(e) => { e.stopPropagation(); removeSubcategory(cat, sc); }}
+                            >
+                              ✕
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                    <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                      <input
+                        style={{ ...styles.textInput, flex: 1, padding: "6px 8px", fontSize: 12 }}
+                        placeholder="+ નવી પેટા કેટેગરી"
+                        value={newSubName}
+                        onChange={(e) => setNewSubName(e.target.value)}
+                      />
+                      <button
+                        style={{ border: "none", background: T.orange, color: "#fff", borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+                        onClick={async () => {
+                          const nm = newSubName.trim();
+                          if (await addSubcategory(cat, nm)) {
+                            setNewProduct((f) => ({ ...f, subcategory: nm }));
+                            setNewSubName("");
+                          }
+                        }}
+                      >
+                        ઉમેરો
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
               <select
                 style={{ ...styles.textInput, marginTop: 8 }}
                 value={newProduct.sellerId || ""}
@@ -6587,7 +6653,23 @@ export default function ApniDukanApp() {
                   )}
                 </div>
               )}
-              {showProductList && categoryChips(adminCat, (c) => { setAdminCat(c); setAdminMore((prev) => ({ ...prev, prod: 60 })); })}
+              {showProductList && categoryChips(adminCat, (c) => { setAdminCat(c); setAdminSub(""); setAdminMore((prev) => ({ ...prev, prod: 60 })); })}
+              {showProductList && adminCat && subcatsFor(adminCat, subcatCustom).length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, margin: "0 0 10px" }}>
+                  {["", ...subcatsFor(adminCat, subcatCustom), "અન્ય"].map((sc) => (
+                    <button
+                      key={sc || "all"}
+                      onClick={() => { setAdminSub(sc); setAdminMore((prev) => ({ ...prev, prod: 60 })); }}
+                      style={{
+                        border: `1px solid ${adminSub === sc ? T.orange : T.hairline}`, borderRadius: 999, padding: "4px 10px", fontSize: 11.5, fontWeight: 700, cursor: "pointer",
+                        background: adminSub === sc ? T.orange : "#fff", color: adminSub === sc ? "#fff" : T.inkSoft,
+                      }}
+                    >
+                      {sc || "બધું"}
+                    </button>
+                  ))}
+                </div>
+              )}
               {showProductList && adminListed.length === 0 && (
                 <div style={{ fontSize: 12, color: "#a49c88", margin: "4px 0 12px" }}>
                   {adminSearchQuery.trim() ? "કોઈ પ્રોડક્ટ મળ્યું નથી." : "ઉપરથી કેટેગરી પસંદ કરો અથવા નામ શોધો."}
@@ -6603,7 +6685,7 @@ export default function ApniDukanApp() {
                   <div style={{ flex: 1, marginLeft: 8 }}>
                     <div style={{ fontSize: 12, fontWeight: 600 }}>{p.name}</div>
                     <div style={{ fontSize: 11, color: "#8a8378" }}>
-                      {p.category} · {formatRs(p.price)}
+                      {p.category}{p.subcategory ? ` / ${p.subcategory}` : ""} · {formatRs(p.price)}
                       {p.stock != null && p.stock !== "" ? ` · સ્ટોક: ${p.stock}` : ""}
                       {p.soldOut ? " · ❌ ખતમ (સેલરે)" : ""}
                     </div>
