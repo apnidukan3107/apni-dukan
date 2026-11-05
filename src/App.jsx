@@ -228,9 +228,286 @@ function poMemorySave(form) {
 function blankPoForm(mem) {
   return {
     poNo: "", poDate: "", billTo: mem.lastBillTo || "", payment: mem.lastPayment || "", docTotal: null, notes: "",
-    items: [{ name: "", qty: "1", unit: "PC", rate: "", gst: "18" }],
+    items: [{ name: "", qty: "1", unit: "PC", rate: "", gst: "" }],
   };
 }
+// ---- Reading a purchase order from a PDF or a screenshot, free (no AI, no API key) ----
+// PDF: the text and its position are read with pdf.js.  Photo/screenshot: OCR with Tesseract.js.
+// Both give "words with a position"; one parser turns them into the PO fields. Tuned for the Lubi PO layout.
+// The seller always checks the result in the form before printing.
+const PO_SCRIPT_CACHE = {};
+function poLoadScript(url) {
+  if (PO_SCRIPT_CACHE[url]) return PO_SCRIPT_CACHE[url];
+  PO_SCRIPT_CACHE[url] = new Promise((resolve, reject) => {
+    const el = document.createElement("script");
+    el.src = url;
+    el.async = true;
+    el.onload = resolve;
+    el.onerror = () => { delete PO_SCRIPT_CACHE[url]; reject(new Error("script load failed")); };
+    document.head.appendChild(el);
+  });
+  return PO_SCRIPT_CACHE[url];
+}
+async function poWordsFromPdf(file) {
+  await poLoadScript("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js");
+  const lib = window.pdfjsLib;
+  lib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  const pdf = await lib.getDocument({ data: await file.arrayBuffer() }).promise;
+  const page = await pdf.getPage(1);   // the PO details are on the first page (page 2 is the terms)
+  const vp = page.getViewport({ scale: 1 });
+  const tc = await page.getTextContent();
+  const words = [];
+  tc.items.forEach((it) => {
+    if (!it.str || !it.str.trim()) return;
+    const x = it.transform[4];
+    const yb = vp.height - it.transform[5];
+    const h = it.height || Math.abs(it.transform[3]) || 10;
+    const w = it.width || 0;
+    const total = it.str.length;
+    let idx = 0;
+    it.str.split(/(\s+)/).forEach((part) => {
+      if (part.trim()) words.push({ s: part, x0: x + (idx / total) * w, x1: x + ((idx + part.length) / total) * w, y0: yb - h, y1: yb });
+      idx += part.length;
+    });
+  });
+  return words;
+}
+async function poWordsFromImage(file, onStatus) {
+  const dataUrl = await new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+  const img = await new Promise((resolve, reject) => {
+    const im = new Image();
+    im.onload = () => resolve(im);
+    im.onerror = reject;
+    im.src = dataUrl;
+  });
+  const scale = Math.max(1, Math.min(2.5, 1800 / img.width));   // small screenshots are enlarged: OCR reads them better
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(img.width * scale);
+  canvas.height = Math.round(img.height * scale);
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  onStatus("OCR એન્જિન લોડ થાય છે (પહેલી વખત 10-30 સેકન્ડ)...");
+  await poLoadScript("https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js");
+  onStatus("ફોટો વાંચી રહ્યું છે...");
+  const res = await window.Tesseract.recognize(canvas, "eng");
+  return (res.data.words || [])
+    .filter((w) => w.text && w.text.trim())
+    .map((w) => ({ s: w.text, x0: w.bbox.x0, x1: w.bbox.x1, y0: w.bbox.y0, y1: w.bbox.y1 }));
+}
+
+function poGroupLines(words) {
+  const ws = words
+    .filter((w) => w.s && String(w.s).trim())
+    .map((w) => ({ ...w, s: String(w.s).trim(), cx: (w.x0 + w.x1) / 2, cy: (w.y0 + w.y1) / 2, h: Math.max(1, w.y1 - w.y0) }));
+  if (!ws.length) return { lines: [], med: 10 };
+  const hs = ws.map((w) => w.h).sort((a, b) => a - b);
+  const med = hs[Math.floor(hs.length / 2)];
+  ws.sort((a, b) => a.cy - b.cy);
+  const lines = [];
+  ws.forEach((w) => {
+    const last = lines[lines.length - 1];
+    if (last && Math.abs(w.cy - last.cy) <= med * 0.6) {
+      last.words.push(w);
+      last.cy = last.words.reduce((a, x) => a + x.cy, 0) / last.words.length;
+    } else {
+      lines.push({ cy: w.cy, words: [w] });
+    }
+  });
+  lines.forEach((l) => {
+    l.words.sort((a, b) => a.x0 - b.x0);
+    // "9.00" followed by "%" (OCR splits them) -> "9.00%"
+    const merged = [];
+    l.words.forEach((w) => {
+      const prev = merged[merged.length - 1];
+      if (w.s === "%" && prev && /^[\d.,]+$/.test(prev.s)) { prev.s += "%"; prev.x1 = w.x1; prev.cx = (prev.x0 + prev.x1) / 2; }
+      else merged.push({ ...w });
+    });
+    l.words = merged;
+    l.text = merged.map((w) => w.s).join(" ");
+  });
+  return { lines, med };
+}
+function poNum(s) {
+  const n = Number(String(s || "").replace(/[^0-9.\-]/g, ""));
+  return Number.isFinite(n) ? n : NaN;
+}
+// "Four Thousand Seven Hundred Four Rupees Thirty Three Paise" -> 4704.33
+function poWordsToNumber(txt) {
+  const small = { zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19 };
+  const tens = { twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90 };
+  const parse = (str) => {
+    let total = 0;
+    let cur = 0;
+    const toks = str.toLowerCase().replace(/[^a-z\s-]/g, " ").replace(/-/g, " ").split(/\s+/).filter(Boolean);
+    for (const w of toks) {
+      if (w in small) cur += small[w];
+      else if (w in tens) cur += tens[w];
+      else if (w === "hundred") cur = (cur || 1) * 100;
+      else if (w === "thousand") { total += (cur || 1) * 1000; cur = 0; }
+      else if (w === "lakh" || w === "lakhs" || w === "lac") { total += (cur || 1) * 100000; cur = 0; }
+      else if (w === "crore") { total += (cur || 1) * 10000000; cur = 0; }
+      else if (w === "and" || w === "only") { /* ignore */ }
+      else return null;
+    }
+    return total + cur;
+  };
+  const parts = String(txt || "").split(/rupees?/i);
+  if (parts.length < 2) return null;
+  const rupees = parse(parts[0]);
+  if (rupees == null) return null;
+  const paiseTxt = parts[1].replace(/paise|paisa|only/gi, " ").trim();
+  const paise = paiseTxt ? parse(paiseTxt) : 0;
+  if (paise == null) return rupees;
+  return Math.round((rupees + paise / 100) * 100) / 100;
+}
+
+function parsePoFromWords(words) {
+  const warnings = [];
+  const out = { poNo: "", poDate: "", billTo: "", payment: "", docTotal: null, items: [] };
+  const { lines, med } = poGroupLines(words);
+  if (!lines.length) return { po: out, warnings: ["લખાણ વંચાયું નથી."] };
+  const allWords = lines.flatMap((l) => l.words);
+  const flat = lines.map((l) => l.text).join("\n").replace(/\s+/g, " ");
+
+  // PO number and date
+  let m = flat.match(/po\s*no\.?\s*[:\-]?\s*(\d{6,})/i);
+  if (m) out.poNo = m[1];
+  m = flat.match(/po\s*date\s*[:\-]?\s*(\d{1,2})\s*[.\/\-]\s*(\d{1,2})\s*[.\/\-]\s*(\d{2,4})/i);
+  if (m) out.poDate = `${m[1].padStart(2, "0")}/${m[2].padStart(2, "0")}/${m[3].length === 2 ? "20" + m[3] : m[3]}`;
+
+  // Bill To: first line of the block under the "Bill To" heading
+  let billHead = null;
+  let supHead = null;
+  let shipHead = null;
+  lines.forEach((l) => {
+    l.words.forEach((w, i) => {
+      const nx = l.words[i + 1];
+      if (/^bill$/i.test(w.s) && nx && /^to$/i.test(nx.s) && !billHead) billHead = { cx: (w.x0 + nx.x1) / 2, cy: l.cy };
+      if (/^ship$/i.test(w.s) && nx && /^to$/i.test(nx.s) && !shipHead) shipHead = { cx: (w.x0 + nx.x1) / 2, cy: l.cy };
+      if (/^supplier$/i.test(w.s) && !supHead) supHead = { cx: w.cx, cy: l.cy };
+    });
+  });
+  if (billHead) {
+    const leftB = supHead ? (supHead.cx + billHead.cx) / 2 : billHead.cx - 170;
+    const rightB = shipHead ? (shipHead.cx + billHead.cx) / 2 : billHead.cx + 170;
+    const detLine = lines.find((l) => /purchase\s+order\s+details/i.test(l.text) && l.cy > billHead.cy);
+    const stopY = detLine ? detLine.cy - med * 0.5 : billHead.cy + med * 14;
+    const block = allWords.filter((w) => w.cy > billHead.cy + med * 0.8 && w.cy < stopY && w.cx >= leftB && w.cx <= rightB);
+    const bl = poGroupLines(block).lines.map((l) => l.text).filter((t) => t && !/^[\d\s]+$/.test(t));
+    if (bl.length) out.billTo = bl[0].trim();
+  }
+  if (!out.billTo) warnings.push("Bill To નામ વંચાયું નથી.");
+
+  // items table
+  const qtyHead = allWords.find((w) => /^qty$/i.test(w.s));
+  if (!qtyHead) {
+    warnings.push("વસ્તુઓનું ટેબલ વંચાયું નથી, વસ્તુઓ જાતે ભરો.");
+  } else {
+    const near = (w) => Math.abs(w.cy - qtyHead.cy) <= med * 2.2;
+    const hsnHead = allWords.find((w) => /^hsn$/i.test(w.s) && near(w));
+    const descRight = Math.min(hsnHead ? hsnHead.x0 - 3 : Infinity, qtyHead.x0 - 20);
+    const gstHeads = ["cgst", "sgst", "igst"]
+      .map((k) => { const w = allWords.find((x) => new RegExp("^" + k, "i").test(x.s) && near(x)); return w ? { k, cx: w.cx } : null; })
+      .filter(Boolean);
+    const totalLine = lines.find((l) => /^total\b/i.test(l.text) && l.cy > qtyHead.cy + med * 2);
+    const codes = allWords
+      .filter((w) => /^\d{9,10}$/.test(w.s) && w.cx < descRight && w.cy > qtyHead.cy)
+      .sort((a, b) => a.cy - b.cy);
+    codes.forEach((code, ci) => {
+      const y0 = code.cy - med * 0.7;
+      const nextY = ci + 1 < codes.length ? codes[ci + 1].cy - med * 0.7 : (totalLine ? totalLine.cy - med * 0.5 : code.cy + med * 9);
+      const row = allWords.filter((w) => w.cy >= y0 && w.cy < nextY);
+
+      // name = description lines (without the item code and the "96.000 ROL: 15.11.2026" delivery line)
+      const descWords = row.filter((w) => w.cx < descRight && w.x0 > code.x0 - 4 && w !== code);
+      const descLines = poGroupLines(descWords).lines
+        .map((l) => l.text)
+        .filter((t) => t && !/^\d+(?:\.\d+)?\s*[A-Za-z]{1,6}\s*:\s*\d/.test(t) && !/^\d{9,10}$/.test(t));
+      const first = descLines[0] || "";
+      const keep = [first, ...descLines.slice(1).filter((t) => !t.toLowerCase().startsWith(first.toLowerCase().slice(0, Math.max(4, first.length - 2))))];
+      const name = keep.slice(0, 2).join(" ").replace(/\s+/g, " ").trim();
+
+      // qty, unit, rate: read from the same line as the item code, in order  [HSN] QTY UOM RATE DISC
+      let qty = NaN;
+      let unit = "PC";
+      let rate = NaN;
+      const outLines = poGroupLines(row.filter((w) => w.cx >= descRight)).lines;
+      for (const ol of outLines) {
+        const toks = ol.words.map((w) => w.s);
+        const ui = toks.findIndex((t) => /^[A-Za-z]{1,6}\.?$/.test(t));
+        if (ui > 0 && Number.isFinite(poNum(toks[ui - 1])) && /\d/.test(toks[ui - 1])) {
+          qty = poNum(toks[ui - 1]);
+          unit = toks[ui].replace(".", "").toUpperCase();
+          rate = poNum(toks[ui + 1]);
+          break;
+        }
+      }
+
+      // GST % = CGST% + SGST%  (or IGST%)
+      const pcts = row.filter((w) => /^[\d.]+%$/.test(w.s) && w.cx >= descRight).map((w) => ({ cx: w.cx, v: poNum(w.s) }));
+      let cg = 0;
+      let sg = 0;
+      let ig = 0;
+      if (pcts.length) {
+        pcts.forEach((p, i) => {
+          let key;
+          if (gstHeads.length) key = gstHeads.reduce((best, g) => (Math.abs(g.cx - p.cx) < Math.abs(best.cx - p.cx) ? g : best)).k;
+          else key = pcts.length === 1 ? "igst" : i === 0 ? "cgst" : "sgst";
+          if (key === "cgst") cg += p.v; else if (key === "sgst") sg += p.v; else ig += p.v;
+        });
+      }
+      const gstPct = ig > 0 ? ig : cg + sg;
+      const gstFound = pcts.length > 0;
+      if (!name || !(qty > 0) || !(rate >= 0)) warnings.push(`વસ્તુ ${ci + 1} સ્પષ્ટ વંચાઈ નથી, ચકાસો.`);
+      out.items.push({
+        name,
+        qty: Number.isFinite(qty) ? String(qty) : "",
+        unit,
+        rate: Number.isFinite(rate) ? String(rate) : "",
+        gst: String(gstPct),
+        gstFound,
+      });
+    });
+    if (!out.items.length) warnings.push("વસ્તુઓ વંચાઈ નથી, વસ્તુઓ જાતે ભરો.");
+    if (out.items.some((x) => !x.gstFound)) warnings.push("GST ની કોલમ ખાલી કે કપાયેલી છે, એટલે GST 0% મૂક્યું છે. PO માં ચકાસો.");
+  }
+
+  // total printed on the PO ("Total Amount" number, else the "Amount in Words")
+  m = flat.match(/total\s*amount\s*[:\-]?\s*(?:rs\.?|₹)?\s*([\d,]+\.\d{2})/i);
+  if (m) out.docTotal = poNum(m[1]);
+  if (out.docTotal == null) {
+    const w = flat.match(/words\s*:\s*(.*?paise)/i);
+    const wl = (() => {
+      const head = allWords.find((x) => /^words/i.test(x.s));
+      if (!head) return "";
+      const sub = allWords.find((x) => /^sub-?total/i.test(x.s) && x.cy > head.cy - med * 2);
+      const stopX = sub ? sub.x0 - 2 : Infinity;
+      const part = allWords.filter((x) => x.cy >= head.cy - med * 0.7 && x.cy <= head.cy + med * 2.6 && x.cx < stopX);
+      return poGroupLines(part).lines.map((l) => l.text).join(" ");
+    })();
+    const mm = (wl || (w ? w[0] : "")).match(/words\s*:\s*(.*)/i);
+    const val = mm ? poWordsToNumber(mm[1]) : null;
+    if (val != null) out.docTotal = val;
+  }
+
+  // payment terms
+  const payLine = lines.find((l) => /payment\s*terms?/i.test(l.text));
+  if (payLine) {
+    const pm = payLine.text.match(/payment\s*terms?\s*[-:]*\s*(.+)/i);
+    if (pm) out.payment = pm[1].trim().slice(0, 80);
+  }
+  if (!out.poNo) warnings.push("PO નંબર વંચાયો નથી.");
+  if (!out.poDate) warnings.push("PO તારીખ વંચાઈ નથી.");
+  return { po: out, warnings };
+}
+
 // Totals of a purchase order exactly as they are printed on the slip (rounded to paise).
 function poCalc(form) {
   const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
@@ -2735,7 +3012,59 @@ export default function ApniDukanApp() {
   const [poMsg, setPoMsg] = useState("");
   const [poForm, setPoForm] = useState(null);
   const [poMemory, setPoMemory] = useState(() => poMemoryLoad());
+  const [poStatus, setPoStatus] = useState("");
+  const [poShot, setPoShot] = useState("");        // PO screenshot shown above the form (stays on this phone, never uploaded)
+  const [poShotBig, setPoShotBig] = useState(false);
+  function pickPoShot(e) {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    if (poShot) URL.revokeObjectURL(poShot);
+    setPoShot(URL.createObjectURL(file));
+    setPoShotBig(false);
+  }
 
+  // PDF -> text positions (pdf.js), screenshot/photo -> OCR (Tesseract.js); then the form is filled for the seller to check.
+  async function readPoFile(e) {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    setPoMsg("");
+    setPoBusy(true);
+    setPoStatus("ફાઇલ વંચાય છે...");
+    try {
+      const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name || "");
+      let words;
+      if (isPdf) words = await poWordsFromPdf(file);
+      else if (file.type && file.type.startsWith("image/")) words = await poWordsFromImage(file, setPoStatus);
+      else throw new Error("type");
+      if (!words.length) throw new Error("empty");
+      const { po, warnings } = parsePoFromWords(words);
+      setPoForm({
+        poNo: po.poNo,
+        poDate: po.poDate,
+        billTo: po.billTo || poMemory.lastBillTo || "",
+        payment: po.payment || poMemory.lastPayment || "",
+        docTotal: po.docTotal == null ? null : String(po.docTotal),
+        notes: "",
+        warn: warnings,
+        items: po.items.length
+          ? po.items.map((i) => ({ name: i.name, qty: i.qty, unit: i.unit || "PC", rate: i.rate, gst: i.gst, chkGst: !i.gstFound }))
+          : [{ name: "", qty: "1", unit: "PC", rate: "", gst: "18" }],
+      });
+    } catch (err) {
+      console.error("po read failed", err);
+      const m = String((err && err.message) || "");
+      setPoMsg(
+        m === "type" ? "ફક્ત PDF અથવા ફોટો પસંદ કરો."
+        : m === "empty" ? "ફાઇલમાં લખાણ મળ્યું નથી (સ્કેન કરેલી PDF હોય તો તેનો સ્ક્રીનશોટ અપલોડ કરો). ફોર્મ જાતે ભરો."
+        : "ફાઇલ વાંચી શકાઈ નથી (ઇન્ટરનેટ તપાસો). ફોર્મ જાતે ભરો."
+      );
+      setPoForm(blankPoForm(poMemory));
+    }
+    setPoBusy(false);
+    setPoStatus("");
+  }
   function setPoField(field, value) {
     setPoForm((f) => ({ ...f, [field]: value }));
   }
@@ -2743,7 +3072,7 @@ export default function ApniDukanApp() {
     setPoForm((f) => ({ ...f, items: f.items.map((x, i) => (i === idx ? { ...x, [field]: value } : x)) }));
   }
   function addPoItem() {
-    setPoForm((f) => ({ ...f, items: [...f.items, { name: "", qty: "1", unit: "PC", rate: "", gst: "18" }] }));
+    setPoForm((f) => ({ ...f, items: [...f.items, { name: "", qty: "1", unit: "PC", rate: "", gst: "" }] }));
   }
   function removePoItem(idx) {
     setPoForm((f) => ({ ...f, items: f.items.filter((_, i) => i !== idx) }));
@@ -2753,6 +3082,16 @@ export default function ApniDukanApp() {
     const calc = poCalc(poForm);
     if (!poForm.poNo.trim()) { setPoMsg("PO નંબર લખો."); return; }
     if (calc.rows.length === 0) { setPoMsg("ઓછામાં ઓછી એક વસ્તુ (નામ અને જથ્થા સાથે) જોઈએ."); return; }
+    if (poForm.items.some((x) => String(x.name || "").trim() && String(x.gst ?? "").trim() === "")) {
+      setPoMsg("દરેક વસ્તુમાં GST% લખો (GST ન હોય તો 0).");
+      return;
+    }
+    const typedTotal = poForm.docTotal == null || String(poForm.docTotal).trim() === "" ? null : Number(poForm.docTotal);
+    if (typedTotal == null) {
+      if (!window.confirm(`PO નો કુલ ભર્યો નથી.\nગણતરી: ₹${calc.total.toFixed(2)}\nPO સાથે મેળવી લીધું? છાપવું છે?`)) return;
+    } else if (Math.abs(typedTotal - calc.total) > 1) {
+      if (!window.confirm(`PO માં કુલ ₹${typedTotal.toFixed(2)} છે, પણ ગણતરી ₹${calc.total.toFixed(2)} છે.\nછતાં છાપવું છે?`)) return;
+    }
     setPoBusy(true);
     setPoMsg("");
     try {
@@ -2765,6 +3104,8 @@ export default function ApniDukanApp() {
       });
       poMemorySave(poForm);
       setPoMemory(poMemoryLoad());
+      if (poShot) URL.revokeObjectURL(poShot);
+      setPoShot("");
       setPoForm(null);
       setPoOpen(false);
       setPoMsg("✔ PO ની સ્લિપ પ્રિન્ટ કતારમાં મૂકાઈ ગઈ.");
@@ -5169,7 +5510,7 @@ export default function ApniDukanApp() {
                   return (
                     <div style={{ marginBottom: 12 }}>
                       <button
-                        onClick={() => { const next = !poOpen; setPoOpen(next); setPoMsg(""); if (next && !poForm) setPoForm(blankPoForm(poMemory)); }}
+                        onClick={() => { setPoOpen((v) => !v); setPoMsg(""); }}
                         style={{ width: "100%", padding: "11px 0", borderRadius: 10, border: `1.5px dashed ${T.orange}`, background: "transparent", color: T.orange, fontWeight: 800, fontSize: 14, cursor: "pointer" }}
                       >
                         🧾 PO પ્રિન્ટ કરો
@@ -5179,11 +5520,58 @@ export default function ApniDukanApp() {
                       )}
                       {poOpen && (
                         <div style={{ ...styles.orderCard, marginTop: 8 }}>
+                          {!poForm && (
+                            <>
+                              <div style={{ fontSize: 12, color: "#6b6555", marginBottom: 8 }}>PO કેવી રીતે બનાવવી?</div>
+                              <div
+                                onClick={() => setPoForm(blankPoForm(poMemory))}
+                                style={{ border: `1px solid ${T.hairline}`, borderRadius: 10, padding: "11px 12px", cursor: "pointer", fontWeight: 700, fontSize: 13.5 }}
+                              >
+                                ✍ જાતે ભરો
+                                <div style={{ fontWeight: 400, fontSize: 11.5, color: "#8a8378" }}>PO જોઈને વિગત ટાઇપ કરો</div>
+                              </div>
+                              <label style={{ display: "block", marginTop: 8, cursor: poBusy ? "default" : "pointer" }}>
+                                <input type="file" accept="application/pdf,image/*" onChange={readPoFile} disabled={poBusy} style={{ display: "none" }} />
+                                <div style={{ border: `1px solid ${T.orange}`, borderRadius: 10, padding: "11px 12px", fontWeight: 700, fontSize: 13.5, color: T.orange }}>
+                                  📎 PDF / સ્ક્રીનશોટ અપલોડ કરો
+                                  <div style={{ fontWeight: 400, fontSize: 11.5 }}>
+                                    {poBusy ? poStatus || "વંચાય છે..." : "આપોઆપ વંચાય, તમે ચકાસીને છાપો"}
+                                  </div>
+                                </div>
+                              </label>
+                            </>
+                          )}
                           {poForm && (
                             <>
                               <div style={{ fontSize: 11.5, color: "#8a8378", marginBottom: 8 }}>
                                 PO જોઈને વિગત ભરો. પાર્ટી, વસ્તુ, ભાવ અને GST આ ફોનમાં યાદ રહેશે, આગલી વખતે ઝડપથી ભરાશે.
                               </div>
+                              <label style={{ display: "block", cursor: "pointer", marginBottom: 8 }}>
+                                <input type="file" accept="image/*" onChange={pickPoShot} style={{ display: "none" }} />
+                                <div style={{ border: `1px dashed ${T.hairline}`, borderRadius: 8, padding: "8px 0", textAlign: "center", fontSize: 12.5, fontWeight: 700 }}>
+                                  {poShot ? "બીજો સ્ક્રીનશોટ પસંદ કરો" : "🖼 PO નો સ્ક્રીનશોટ સાથે બતાવો (વૈકલ્પિક)"}
+                                </div>
+                              </label>
+                              {poShot && (
+                                <div style={{ marginBottom: 8 }}>
+                                  <div style={{ maxHeight: poShotBig ? 520 : 220, overflow: "auto", border: `1px solid ${T.hairline}`, borderRadius: 8 }}>
+                                    <img
+                                      src={poShot}
+                                      alt="PO સ્ક્રીનશોટ"
+                                      onClick={() => setPoShotBig((v) => !v)}
+                                      style={{ width: poShotBig ? "250%" : "100%", maxWidth: "none", display: "block" }}
+                                    />
+                                  </div>
+                                  <div style={{ fontSize: 10.5, color: "#8a8378", marginTop: 3 }}>ફોટો દબાવો તો મોટો/નાનો થાય. આ ફોટો ક્યાંય મોકલાતો નથી.</div>
+                                </div>
+                              )}
+                              {poForm.warn && poForm.warn.length > 0 && (
+                                <div style={{ background: "#FFF4D6", borderRadius: 8, padding: "6px 8px", marginBottom: 8, fontSize: 12, color: "#8a5a00" }}>
+                                  {poForm.warn.map((w, wi) => (
+                                    <div key={wi}>• {w}</div>
+                                  ))}
+                                </div>
+                              )}
                               <datalist id="po-parties">{poMemory.parties.map((v) => <option key={v} value={v} />)}</datalist>
                               <datalist id="po-items">{Object.keys(poMemory.items).map((v) => <option key={v} value={v} />)}</datalist>
                               <div style={{ display: "flex", gap: 6 }}>
@@ -5213,7 +5601,13 @@ export default function ApniDukanApp() {
                                     <input type="number" style={{ ...mi, width: 58 }} placeholder="જથ્થો" value={x.qty} onChange={(e) => setPoItem(i, "qty", e.target.value)} />
                                     <input style={{ ...mi, width: 46 }} placeholder="PC" value={x.unit} onChange={(e) => setPoItem(i, "unit", e.target.value)} />
                                     <input type="number" style={{ ...mi, flex: 1 }} placeholder="ભાવ" value={x.rate} onChange={(e) => setPoItem(i, "rate", e.target.value)} />
-                                    <input type="number" style={{ ...mi, width: 56 }} placeholder="GST%" value={x.gst} onChange={(e) => setPoItem(i, "gst", e.target.value)} />
+                                    <input
+                                      type="number"
+                                      style={{ ...mi, width: 56, ...(x.chkGst ? { background: "#FFF4D6", border: `1px solid ${T.orange}` } : {}) }}
+                                      placeholder="GST%"
+                                      value={x.gst}
+                                      onChange={(e) => { setPoItem(i, "gst", e.target.value); setPoItem(i, "chkGst", false); }}
+                                    />
                                     <span style={{ color: "#c0392b", cursor: "pointer", fontWeight: 800, padding: "0 4px" }} onClick={() => removePoItem(i)}>✕</span>
                                   </div>
                                   <div style={{ fontSize: 11, color: "#6b6555", marginTop: 3 }}>
@@ -5240,6 +5634,9 @@ export default function ApniDukanApp() {
                                 <div style={{ display: "flex", justifyContent: "space-between" }}><span>GST</span><span>{rs2(calc.gstTotal)}</span></div>
                                 <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 800, fontSize: 14, marginTop: 2 }}><span>TOTAL</span><span>{rs2(calc.total)}</span></div>
                               </div>
+                              {!mismatch && poForm.docTotal != null && poForm.docTotal !== "" && Math.abs(Number(poForm.docTotal) - calc.total) <= 1 && (
+                                <div style={{ fontSize: 12, color: "#2e7d4f", fontWeight: 700, marginTop: 6 }}>✔ ગણતરી PO ના કુલ સાથે મેળ ખાય છે</div>
+                              )}
                               {mismatch && (
                                 <div style={{ fontSize: 12, color: "#b23b3b", fontWeight: 700, marginTop: 6 }}>
                                   ધ્યાન: PO માં કુલ {rs2(poForm.docTotal)} લખેલું છે, પણ અહીંની ગણતરી {rs2(calc.total)} છે. જથ્થો, ભાવ, GST ફરી ચકાસો.
