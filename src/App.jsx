@@ -948,6 +948,221 @@ function subcatsFor(cat, custom) {
   const extra = (custom && custom[cat]) || [];
   return Array.from(new Set([...base, ...extra]));
 }
+// ---- Product photo tools: shrink a phone photo (under ~0.3 MB) or turn it into a ready "offer poster" with the price ----
+function imgLoadFile(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const im = new Image();
+    im.onload = () => { resolve(im); setTimeout(() => URL.revokeObjectURL(url), 8000); };
+    im.onerror = () => { URL.revokeObjectURL(url); reject(new Error("bad image")); };
+    im.src = url;
+  });
+}
+function imgCanvasToJpeg(canvas, maxChars, q0) {
+  let q = q0 || 0.86;
+  let out = canvas.toDataURL("image/jpeg", q);
+  while (out.length > maxChars && q > 0.42) {
+    q -= 0.07;
+    out = canvas.toDataURL("image/jpeg", q);
+  }
+  return out;
+}
+// plain: only smaller + lighter (a Firestore document must stay under 1 MB; the store loads every product, so lighter is faster)
+function imgMakePlain(img, maxDim, maxChars) {
+  const md = maxDim || 1000;
+  const mc = maxChars || 330000;
+  let scale = Math.min(1, md / Math.max(img.naturalWidth, img.naturalHeight));
+  let out = "";
+  for (let pass = 0; pass < 4; pass++) {
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+    const c = canvas.getContext("2d");
+    c.fillStyle = "#fff";
+    c.fillRect(0, 0, canvas.width, canvas.height);
+    c.drawImage(img, 0, 0, canvas.width, canvas.height);
+    out = imgCanvasToJpeg(canvas, mc, 0.86);
+    if (out.length <= mc) break;
+    scale *= 0.8;
+  }
+  return out;
+}
+const IMG_THEMES = {
+  purple: { bg: ["#2a0845", "#6a1b9a", "#c2185b"], tag: "#d50000", tagLine: "#ffeb3b", pill: ["#6a1b9a", "#311b92"] },
+  green: { bg: ["#06361f", "#1b7a43", "#7cb342"], tag: "#c62828", tagLine: "#ffeb3b", pill: ["#2e7d32", "#1b5e20"] },
+  blue: { bg: ["#07204a", "#1565c0", "#00acc1"], tag: "#d84315", tagLine: "#ffeb3b", pill: ["#1565c0", "#0d2f6e"] },
+};
+// poster 800x1200: festive background, price tag on top, the photo in a frame, "Available on apnidukanse.in" at the bottom
+function imgMakePoster(img, opts) {
+  const price = opts && opts.price;
+  const T = IMG_THEMES[(opts && opts.theme) || "purple"] || IMG_THEMES.purple;
+  const W = 800;
+  const H = 1200;
+  const canvas = document.createElement("canvas");
+  canvas.width = W;
+  canvas.height = H;
+  const c = canvas.getContext("2d");
+  const rr = (x, y, w, h, r) => {
+    c.beginPath();
+    c.moveTo(x + r, y);
+    c.arcTo(x + w, y, x + w, y + h, r);
+    c.arcTo(x + w, y + h, x, y + h, r);
+    c.arcTo(x, y + h, x, y, r);
+    c.arcTo(x, y, x + w, y, r);
+    c.closePath();
+  };
+  const fit = (text, weight, maxW, startPx, minPx) => {
+    let fs = startPx;
+    c.font = `${weight} ${fs}px "Arial Black", Impact, Arial, sans-serif`;
+    while (c.measureText(text).width > maxW && fs > minPx) {
+      fs -= 4;
+      c.font = `${weight} ${fs}px "Arial Black", Impact, Arial, sans-serif`;
+    }
+    return fs;
+  };
+  // background + soft lights
+  const g = c.createLinearGradient(0, 0, W, H);
+  g.addColorStop(0, T.bg[0]);
+  g.addColorStop(0.55, T.bg[1]);
+  g.addColorStop(1, T.bg[2]);
+  c.fillStyle = g;
+  c.fillRect(0, 0, W, H);
+  [[90, 330, 60], [700, 420, 48], [120, 980, 70], [690, 860, 56], [400, 170, 40], [745, 140, 34], [55, 640, 40], [560, 1010, 46]].forEach(([x, y, r]) => {
+    const rg = c.createRadialGradient(x, y, 0, x, y, r);
+    rg.addColorStop(0, "rgba(255,214,102,0.55)");
+    rg.addColorStop(1, "rgba(255,214,102,0)");
+    c.fillStyle = rg;
+    c.beginPath();
+    c.arc(x, y, r, 0, Math.PI * 2);
+    c.fill();
+  });
+
+  // price tag
+  const p = Number(price);
+  const hasPrice = Number.isFinite(p) && p > 0;
+  let photoTop = 60;
+  if (hasPrice) {
+    photoTop = 290;
+    const text = `₹${p.toLocaleString("en-IN")}/-`;
+    c.save();
+    c.shadowColor = "rgba(0,0,0,0.45)";
+    c.shadowBlur = 24;
+    c.shadowOffsetY = 10;
+    c.beginPath();
+    c.moveTo(60, 72);
+    c.lineTo(740, 40);
+    c.lineTo(752, 232);
+    c.lineTo(86, 264);
+    c.closePath();
+    c.fillStyle = T.tag;
+    c.fill();
+    c.restore();
+    c.lineWidth = 7;
+    c.lineJoin = "round";
+    c.strokeStyle = T.tagLine;
+    c.beginPath();
+    c.moveTo(60, 72);
+    c.lineTo(740, 40);
+    c.lineTo(752, 232);
+    c.lineTo(86, 264);
+    c.closePath();
+    c.stroke();
+    const fs = fit(text, "900", 560, 170, 56);
+    c.textAlign = "center";
+    c.textBaseline = "middle";
+    c.save();
+    c.translate(406, 154);
+    c.rotate(-0.04);
+    c.lineJoin = "round";
+    c.lineWidth = 16;
+    c.strokeStyle = "#7f0000";
+    c.strokeText(text, 0, 0);
+    const tg = c.createLinearGradient(0, -fs / 2, 0, fs / 2);
+    tg.addColorStop(0, "#ffffff");
+    tg.addColorStop(0.5, "#fff176");
+    tg.addColorStop(1, "#ffc107");
+    c.fillStyle = tg;
+    c.fillText(text, 0, 0);
+    c.restore();
+  }
+
+  // photo frame (the photo is never cropped: a blurred copy fills the sides)
+  const fx = 50;
+  const fw = 700;
+  const fy = photoTop;
+  const fh = 965 - photoTop;
+  c.save();
+  c.shadowColor = "rgba(0,0,0,0.5)";
+  c.shadowBlur = 30;
+  c.shadowOffsetY = 14;
+  rr(fx, fy, fw, fh, 36);
+  c.fillStyle = "#fff";
+  c.fill();
+  c.restore();
+  const ix = fx + 8;
+  const iy = fy + 8;
+  const iw = fw - 16;
+  const ih = fh - 16;
+  c.save();
+  rr(ix, iy, iw, ih, 30);
+  c.clip();
+  const w0 = img.naturalWidth;
+  const h0 = img.naturalHeight;
+  const canFilter = "filter" in c;
+  if (canFilter) {
+    const cover = Math.max(iw / w0, ih / h0);
+    c.filter = "blur(22px) brightness(0.85)";
+    c.drawImage(img, ix + (iw - w0 * cover) / 2, iy + (ih - h0 * cover) / 2, w0 * cover, h0 * cover);
+    c.filter = "none";
+  } else {
+    c.fillStyle = "#f3efe6";
+    c.fillRect(ix, iy, iw, ih);
+  }
+  const contain = Math.min(iw / w0, ih / h0);
+  if (canFilter) c.filter = "contrast(1.06) saturate(1.12)";
+  c.drawImage(img, ix + (iw - w0 * contain) / 2, iy + (ih - h0 * contain) / 2, w0 * contain, h0 * contain);
+  if (canFilter) c.filter = "none";
+  c.restore();
+
+  // bottom: "Available on" + site name
+  c.save();
+  c.shadowColor = "rgba(0,0,0,0.4)";
+  c.shadowBlur = 14;
+  c.shadowOffsetY = 6;
+  rr(205, 980, 390, 66, 33);
+  const yg = c.createLinearGradient(0, 980, 0, 1046);
+  yg.addColorStop(0, "#fff59d");
+  yg.addColorStop(1, "#ffb300");
+  c.fillStyle = yg;
+  c.fill();
+  c.restore();
+  c.textAlign = "center";
+  c.textBaseline = "middle";
+  c.fillStyle = "#1a1033";
+  c.font = 'italic 900 40px "Arial Black", Arial, sans-serif';
+  c.fillText("Available on", 400, 1015);
+  c.save();
+  c.shadowColor = "rgba(0,0,0,0.45)";
+  c.shadowBlur = 18;
+  c.shadowOffsetY = 8;
+  rr(40, 1052, 720, 118, 59);
+  const pg = c.createLinearGradient(0, 1052, 0, 1170);
+  pg.addColorStop(0, T.pill[0]);
+  pg.addColorStop(1, T.pill[1]);
+  c.fillStyle = pg;
+  c.fill();
+  c.restore();
+  rr(40, 1052, 720, 118, 59);
+  c.lineWidth = 7;
+  c.strokeStyle = "#ffca28";
+  c.stroke();
+  const site = "apnidukanse.in";
+  fit(site, "900", 620, 76, 40);
+  c.fillStyle = "#ffffff";
+  c.fillText(site, 400, 1114);
+  return imgCanvasToJpeg(canvas, 450000, 0.9);
+}
+
 const ADMIN_PIN = "1609";
 
 // ---- Sellers: small vepari (Sandhya Traders, B.M. Traders, Deepankit) ----
@@ -2532,6 +2747,12 @@ export default function ApniDukanApp() {
   const [subcatCustom, setSubcatCustom] = useState({});
   const [newSubName, setNewSubName] = useState("");
   const [adminSub, setAdminSub] = useState("");
+  // product photo: "poster" = offer poster with the price, "plain" = only a smaller photo
+  const [imgMode, setImgMode] = useState("poster");
+  const [imgTheme, setImgTheme] = useState("purple");
+  const [imgBusy, setImgBusy] = useState(false);
+  const [imgNew, setImgNew] = useState(false);   // true while the photo in the form was picked just now
+  const imgSourceRef = useRef(null);
   const [editingProductId, setEditingProductId] = useState(null);
 
   // sellers (Sandhya Traders, B.M. Traders, Deepankit, etc.)
@@ -3987,6 +4208,7 @@ export default function ApniDukanApp() {
         sellerId: newProduct.sellerId || null,
       };
     }
+    resetProductPhoto();
     setNewProduct({ name: "", category: newProduct.category, subcategory: newProduct.subcategory, price: "", img: "🛍️", image: "", stock: "", sellerId: newProduct.sellerId });
     setEditingProductId(null);
     try {
@@ -3995,6 +4217,7 @@ export default function ApniDukanApp() {
   }
 
   function startEditProduct(p) {
+    resetProductPhoto();
     setEditingProductId(p.id);
     setNewProduct({
       name: p.name || "",
@@ -4010,6 +4233,7 @@ export default function ApniDukanApp() {
 
   function cancelEditProduct() {
     setEditingProductId(null);
+    resetProductPhoto();
     setNewProduct({ name: "", category: newProduct.category, subcategory: newProduct.subcategory, price: "", img: "🛍️", image: "", stock: "", sellerId: newProduct.sellerId });
   }
 
@@ -4029,14 +4253,42 @@ export default function ApniDukanApp() {
     await saveSubcatCustom({ ...subcatCustom, [cat]: (subcatCustom[cat] || []).filter((x) => x !== name) });
   }
 
-  function handleProductImageFile(file) {
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      setNewProduct((f) => ({ ...f, image: reader.result }));
-    };
-    reader.readAsDataURL(file);
+  function buildProductImage(img, mode, theme, price) {
+    try {
+      return mode === "poster" ? imgMakePoster(img, { price, theme }) : imgMakePlain(img);
+    } catch (e) {
+      console.error("photo make failed", e);
+      return "";
+    }
   }
+  async function handleProductImageFile(file) {
+    if (!file) return;
+    setImgBusy(true);
+    try {
+      const img = await imgLoadFile(file);
+      imgSourceRef.current = img;
+      setImgNew(true);
+      const out = buildProductImage(img, imgMode, imgTheme, newProduct.price);
+      if (out) setNewProduct((f) => ({ ...f, image: out }));
+    } catch {
+      window.alert("ફોટો વાંચી શકાયો નથી. બીજો ફોટો પસંદ કરો.");
+    }
+    setImgBusy(false);
+  }
+  function resetProductPhoto() {
+    imgSourceRef.current = null;
+    setImgNew(false);
+  }
+  // the poster is made again when the price, style or mode changes (only for a photo picked just now)
+  useEffect(() => {
+    const img = imgSourceRef.current;
+    if (!img) return undefined;
+    const t = setTimeout(() => {
+      const out = buildProductImage(img, imgMode, imgTheme, newProduct.price);
+      if (out) setNewProduct((f) => ({ ...f, image: out }));
+    }, 350);
+    return () => clearTimeout(t);
+  }, [imgMode, imgTheme, newProduct.price]);
 
   // ---- bulk add helpers ----
   function addBulkRow() {
@@ -4048,13 +4300,14 @@ export default function ApniDukanApp() {
   function updateBulkRow(idx, field, value) {
     setBulkRows((rows) => rows.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
   }
-  function handleBulkRowImageFile(idx, file) {
+  async function handleBulkRowImageFile(idx, file) {
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      updateBulkRow(idx, "image", reader.result);
-    };
-    reader.readAsDataURL(file);
+    try {
+      const img = await imgLoadFile(file);
+      updateBulkRow(idx, "image", imgMakePlain(img));
+    } catch {
+      window.alert("ફોટો વાંચી શકાયો નથી. બીજો ફોટો પસંદ કરો.");
+    }
   }
 
   async function saveBulkRows() {
@@ -6473,19 +6726,61 @@ export default function ApniDukanApp() {
                     type="file"
                     accept="image/*"
                     style={{ display: "none" }}
-                    onChange={(e) => handleProductImageFile(e.target.files && e.target.files[0])}
+                    onChange={(e) => { handleProductImageFile(e.target.files && e.target.files[0]); e.target.value = ""; }}
                   />
                 </label>
                 {newProduct.image && (
                   <button
                     style={{ background: "none", border: "none", cursor: "pointer" }}
-                    onClick={() => setNewProduct((f) => ({ ...f, image: "" }))}
+                    onClick={() => { resetProductPhoto(); setNewProduct((f) => ({ ...f, image: "" })); }}
                     aria-label="ફોટો કાઢી નાખો"
                   >
                     <X size={16} color="#b23b3b" />
                   </button>
                 )}
               </div>
+
+              {imgBusy && <div style={{ fontSize: 12, color: "#8a8378", marginTop: 6 }}>ફોટો તૈયાર થાય છે...</div>}
+              {imgNew && newProduct.image && (
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                    {[["poster", "✨ ઓફર પોસ્ટર"], ["plain", "સાદો ફોટો"]].map(([k, label]) => (
+                      <button
+                        key={k}
+                        onClick={() => setImgMode(k)}
+                        style={{
+                          border: `1px solid ${imgMode === k ? T.orange : T.hairline}`, borderRadius: 999, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer",
+                          background: imgMode === k ? T.orange : "#fff", color: imgMode === k ? "#fff" : T.inkSoft,
+                        }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                    {imgMode === "poster" &&
+                      [["purple", "જાંબલી"], ["green", "લીલો"], ["blue", "વાદળી"]].map(([k, label]) => (
+                        <button
+                          key={k}
+                          onClick={() => setImgTheme(k)}
+                          style={{
+                            border: `1px solid ${imgTheme === k ? T.ink : T.hairline}`, borderRadius: 8, padding: "4px 10px", fontSize: 11.5, fontWeight: 700, cursor: "pointer",
+                            background: imgTheme === k ? T.surface2 : "#fff", color: T.inkSoft,
+                          }}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                  </div>
+                  <img
+                    src={newProduct.image}
+                    alt="તૈયાર ફોટો"
+                    style={{ display: "block", marginTop: 8, width: imgMode === "poster" ? 190 : 150, maxWidth: "100%", borderRadius: 10, border: `1px solid ${T.hairline}` }}
+                  />
+                  <div style={{ fontSize: 11.5, color: "#6b6555", marginTop: 4 }}>
+                    સાઇઝ: લગભગ {Math.max(1, Math.round((newProduct.image.length * 0.75) / 1024))} KB (1 MB થી ઓછી)
+                    {imgMode === "poster" && !(Number(newProduct.price) > 0) ? " · ભાવ લખશો એટલે ભાવની પટ્ટી ઉમેરાશે" : ""}
+                  </div>
+                </div>
+              )}
 
               <div style={{ display: "flex", gap: 8 }}>
                 <button style={{ ...styles.primaryBtn, flex: 1 }} onClick={saveProduct}>
