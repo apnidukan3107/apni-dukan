@@ -4759,7 +4759,7 @@ export default function ApniDukanApp() {
                       <label style={{ fontSize: 12.5, color: T.inkSoft, fontWeight: 700, marginBottom: 6, display: "block" }}>{label}</label>
                       <input type={type} inputMode={type === "tel" ? "numeric" : undefined} maxLength={max} value={bonusForm[k]}
                         onChange={(e) => setBonusForm((f) => ({ ...f, [k]: k === "phone" ? e.target.value.replace(/[^0-9]/g, "") : e.target.value }))}
-                        style={{ WIDTH_PLACEHOLDER }} />
+                        style={{ width: "100%", boxSizing: "border-box", background: T.surface2, border: `1px solid ${T.hairline}`, borderRadius: 12, padding: "12px 14px", fontSize: 14.5, color: T.ink, fontFamily: "inherit", outline: "none", marginBottom: 12 }} />
                     </div>
                   ))}
                   <label style={{ fontSize: 12.5, color: T.inkSoft, fontWeight: 700, marginBottom: 6, display: "block" }}>સરનામું</label>
