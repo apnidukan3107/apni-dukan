@@ -7520,7 +7520,7 @@ const HOME_BANNERS = [
   { src: JOB_AD_OFFICER_IMG, alt: "Sales Officer - We are hiring", job: "Sales Officer", hot: [69, 84, 21, 12] },
   { src: JOB_AD_DELIVERY_IMG, alt: "Delivery Partners - Apni Dukan", job: "Delivery Partner", hot: [48, 92, 34, 7] },
   // 7th ad: Happy Diwali / Claim Diwali Bonus (16:9 poster, 72 kalak). interleave = darek ad pachhi aa poster aave. Tap karo to form khule.
-  { src: HOME_BANNER_DIWALI_BONUS_IMG, alt: "Happy Diwali - Claim Diwali Bonus - Apni Dukan", interleave: true, end: DIWALI_BONUS_AD_END, action: "diwaliBonus" },
+  { src: HOME_BANNER_DIWALI_BONUS_IMG, alt: "Happy Diwali - Claim Diwali Bonus - Apni Dukan", interleave: true, end: DIWALI_BONUS_AD_END, hot: [28, 56, 46, 29], hotAction: "diwaliBonus" },  // hot = "Claim Diwali Bonus Now" box par tap
 ];
 const HOME_BANNER_SECONDS = 10;          // normal ad time (jyare Diwali poster na hoy)
 const HOME_BANNER_AD_SECONDS_WITH_POSTER = 5;   // Diwali poster chalu hoy tyare darek ad ketla sec
@@ -7606,14 +7606,14 @@ function HomeBannerTimer({ onBannerClick }) {
             }}
           />
         ))}
-        {banners.map((b, i) => (b.job && i === curBanner) ? (
+        {banners.map((b, i) => (b.hot && i === curBanner) ? (
           <button
             key={"hot" + i}
-            aria-label={"Apply Now - " + b.job}
-            onClick={() => onBannerClick && onBannerClick("job:" + b.job)}
+            aria-label={b.job ? "Apply Now - " + b.job : "Claim Diwali Bonus"}
+            onClick={() => onBannerClick && onBannerClick(b.job ? "job:" + b.job : b.hotAction)}
             style={{
               position: "absolute", left: b.hot[0] + "%", top: b.hot[1] + "%", width: b.hot[2] + "%", height: b.hot[3] + "%",
-              background: "transparent", border: "none", borderRadius: 999, cursor: "pointer", padding: 0,
+              background: "transparent", border: "none", borderRadius: b.job ? 999 : 16, cursor: "pointer", padding: 0,
             }}
           />
         ) : null)}
