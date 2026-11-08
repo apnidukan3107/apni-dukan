@@ -5,9 +5,10 @@ import {
   Pencil, ImagePlus, Tag, MessageSquare, Download, Bell, Store
 } from "lucide-react";
 import { initializeApp } from "firebase/app";
-import { getFirestore, doc, getDoc, setDoc, deleteDoc, onSnapshot, collection, getDocs, writeBatch, increment, runTransaction, query, where, documentId } from "firebase/firestore";
+import { getFirestore, doc, getDoc, setDoc, deleteDoc, onSnapshot, collection, getDocs, writeBatch, increment, runTransaction, query, where, documentId, updateDoc } from "firebase/firestore";
 import { getMessaging, getToken, isSupported as isMessagingSupported } from "firebase/messaging";
 import { getAnalytics, logEvent } from "firebase/analytics";
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
 // ✅ VERCEL ANALYTICS - Real-time traffic monitoring
 import { Analytics } from "@vercel/analytics/react";
 // ✅ PREMIUM LOGIN + WALLET
@@ -2580,6 +2581,145 @@ function groupOrdersByDate(orders) {
     byLabel.get(label).items.push({ order: o, orderNumber: orders.length - idx });
   });
   return groups;
+}
+
+// ---- Blog reviews moderation (admin only). Visitors' reviews are saved by blog.html
+// into the "reviews" collection with approved:false. The admin signs in once with a
+// Firebase email/password account (rules allow only that email) and approves/rejects here.
+const reviewAuth = getAuth(firebaseApp);
+function AdminBlogReviews() {
+  const [user, setUser] = useState(null);
+  const [email, setEmail] = useState("");
+  const [pass, setPass] = useState("");
+  const [msg, setMsg] = useState("");
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [busyId, setBusyId] = useState("");
+
+  useEffect(() => onAuthStateChanged(reviewAuth, (u) => setUser(u)), []);
+
+  async function load() {
+    setLoading(true);
+    setMsg("");
+    try {
+      const snap = await getDocs(collection(db, "reviews"));
+      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      list.sort((a, b) => {
+        if (!!a.approved !== !!b.approved) return a.approved ? 1 : -1;
+        return String(b.createdAt?.toDate ? b.createdAt.toDate().toISOString() : b.createdAt || "").localeCompare(
+          String(a.createdAt?.toDate ? a.createdAt.toDate().toISOString() : a.createdAt || "")
+        );
+      });
+      setItems(list);
+    } catch (e) {
+      setItems([]);
+      setMsg("રિવ્યૂ વાંચી શકાયા નહીં. એડમિન ઈમેલથી લૉગિન કરેલું છે કે નહીં તે ચેક કરો.");
+    }
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    if (user) load();
+    else setItems([]);
+  }, [user]);
+
+  async function login() {
+    setMsg("");
+    try {
+      await signInWithEmailAndPassword(reviewAuth, email.trim(), pass);
+      setPass("");
+    } catch (e) {
+      setMsg("લૉગિન થયું નહીં. ઈમેલ અને પાસવર્ડ ચેક કરો.");
+    }
+  }
+
+  async function approve(id) {
+    setBusyId(id);
+    try {
+      await updateDoc(doc(db, "reviews", id), { approved: true });
+      setItems((prev) => prev.map((r) => (r.id === id ? { ...r, approved: true } : r)));
+    } catch (e) {
+      setMsg("Approve થયું નહીં (permission). Rules ચેક કરો.");
+    }
+    setBusyId("");
+  }
+
+  async function reject(id) {
+    if (!window.confirm("આ રિવ્યૂ કાયમ માટે કાઢી નાખવો છે?")) return;
+    setBusyId(id);
+    try {
+      await deleteDoc(doc(db, "reviews", id));
+      setItems((prev) => prev.filter((r) => r.id !== id));
+    } catch (e) {
+      setMsg("Reject થયું નહીં (permission). Rules ચેક કરો.");
+    }
+    setBusyId("");
+  }
+
+  const inp = { width: "100%", boxSizing: "border-box", padding: 8, marginBottom: 6, border: "1px solid #d9d5c3", borderRadius: 8, fontSize: 13 };
+  const when = (r) => {
+    const d = r.createdAt?.toDate ? r.createdAt.toDate() : r.createdAt ? new Date(r.createdAt) : null;
+    return d && !isNaN(d) ? d.toLocaleString("gu-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
+  };
+
+  if (!user) {
+    return (
+      <div>
+        <div style={{ fontSize: 12, color: "#8a8378", marginBottom: 8 }}>રિવ્યૂ મંજૂર કરવા માટે એડમિન ઈમેલથી લૉગિન કરો (Firebase).</div>
+        <input style={inp} type="email" placeholder="એડમિન ઈમેલ" value={email} onChange={(e) => setEmail(e.target.value)} />
+        <input style={inp} type="password" placeholder="પાસવર્ડ" value={pass} onChange={(e) => setPass(e.target.value)} />
+        <button style={styles.primaryBtn} onClick={login}>લૉગિન</button>
+        {msg && <div style={{ fontSize: 12, color: "#c0392b", marginTop: 6 }}>{msg}</div>}
+      </div>
+    );
+  }
+
+  const pending = items.filter((r) => !r.approved);
+  const done = items.filter((r) => r.approved);
+  const card = (r) => (
+    <div key={r.id} style={{ ...styles.orderCard, marginBottom: 8 }}>
+      <div style={{ fontWeight: 800, fontSize: 13 }}>
+        {r.name || "વાચક"} · ⭐ {r.rating}/10
+      </div>
+      <div style={{ fontSize: 11, color: "#8a8378" }}>{r.postId} · {when(r)}</div>
+      {r.comment && <div style={{ fontSize: 12.5, marginTop: 4, whiteSpace: "pre-wrap" }}>{r.comment}</div>}
+      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+        {!r.approved && (
+          <button style={{ ...styles.primaryBtn, flex: 1 }} disabled={busyId === r.id} onClick={() => approve(r.id)}>✔ Approve</button>
+        )}
+        <button
+          style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: "1px solid #c0392b", background: "#fff", color: "#c0392b", fontWeight: 700, cursor: "pointer" }}
+          disabled={busyId === r.id}
+          onClick={() => reject(r.id)}
+        >
+          {r.approved ? "કાઢી નાખો" : "✖ Reject"}
+        </button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, fontSize: 12, color: "#8a8378" }}>
+        <span>{user.email}</span>
+        <span>
+          <button style={{ border: 0, background: "none", color: "#d8541f", fontWeight: 700, cursor: "pointer" }} onClick={load}>રિફ્રેશ</button>
+          {" · "}
+          <button style={{ border: 0, background: "none", color: "#8a8378", cursor: "pointer" }} onClick={() => signOut(reviewAuth)}>લૉગઆઉટ</button>
+        </span>
+      </div>
+      {loading && <div style={{ fontSize: 12 }}>લોડ થઈ રહ્યું છે...</div>}
+      {msg && <div style={{ fontSize: 12, color: "#c0392b", marginBottom: 6 }}>{msg}</div>}
+      {!loading && pending.length === 0 && <div style={{ fontSize: 12, color: "#8a8378" }}>મંજૂરી માટે કોઈ નવો રિવ્યૂ નથી.</div>}
+      {pending.map(card)}
+      {done.length > 0 && (
+        <details style={{ marginTop: 10 }}>
+          <summary style={{ fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>મંજૂર થયેલા ({done.length})</summary>
+          <div style={{ marginTop: 8 }}>{done.map(card)}</div>
+        </details>
+      )}
+    </div>
+  );
 }
 
 export default function ApniDukanApp() {
@@ -6219,6 +6359,13 @@ export default function ApniDukanApp() {
                 <summary style={{ fontWeight: 800, fontSize: 14, cursor: "pointer" }}>👑 Premium customers / Wallet</summary>
                 <div style={{ marginTop: 10 }}>
                   <AdminCustomers />
+                </div>
+              </details>
+
+              <details style={{ marginBottom: 16 }}>
+                <summary style={{ fontWeight: 800, fontSize: 14, cursor: "pointer" }}>⭐ Blog Reviews (Approve / Reject)</summary>
+                <div style={{ marginTop: 10 }}>
+                  <AdminBlogReviews />
                 </div>
               </details>
 
