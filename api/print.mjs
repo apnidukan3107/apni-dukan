@@ -9,7 +9,11 @@
 //   GET /api/print?action=preview&id=ORDERID  (or id=sample) -> PNG preview in the browser
 //   Job application / seller registration slips: queued by the app in printState.queue (ids ja_... / sr_... / po_...),
 //   preview with id=sample_job or id=sample_sel. They print in the same line as orders, oldest first.
-// Auth: header "x-print-key" (or ?key=) must equal the PRINT_KEY env variable.
+// Auth: header "x-print-key" (or ?key=).
+//   PRINT_KEY          -> main printer (Apni Dukan): prints EVERY order, plus job/seller/PO slips (unchanged behaviour)
+//   PRINT_KEY_LAXMAN   -> Laxman Mobile Shop printer: only orders that contain Laxman's items, bill shows only his items + his total
+//   PRINT_KEY_AARTI    -> Aarti's Selection printer: same for Aarti's items
+//   Each printer keeps its own "printed" list in its own Firestore doc, so one printer never hides an order from another.
 import { getDb } from './_lib/firebase.mjs';
 import { renderBill, renderSlip, toEscPos, SAMPLE_ORDER, SAMPLE_JOB, SAMPLE_SEL, SAMPLE_PO } from './_lib/bill.mjs';
 import { FieldValue } from 'firebase-admin/firestore';
@@ -33,9 +37,52 @@ async function loadSellerNames(db) {
   } catch { return {}; }
 }
 
+// seller ids whose name matches (e.g. /laxman/i) -> the sellers added in the admin panel
+async function loadSellerIdsByName(db, re) {
+  const ids = new Set();
+  try {
+    const snap = await db.collection('store').doc('sellers').get();
+    if (!snap.exists) return ids;
+    const list = JSON.parse(snap.data().value) || [];
+    for (const s of list) if (s && s.id && re.test(String(s.name || ''))) ids.add(s.id);
+  } catch { /* ignore */ }
+  return ids;
+}
+
+// which printer is calling? (decided by the key)
+function identifyPrinter(key) {
+  if (!key) return null;
+  if (process.env.PRINT_KEY && key === process.env.PRINT_KEY) return { tag: 'main', doc: 'printState', match: null };
+  if (process.env.PRINT_KEY_LAXMAN && key === process.env.PRINT_KEY_LAXMAN) return { tag: 'laxman', doc: 'printState_laxman', match: /laxman/i };
+  if (process.env.PRINT_KEY_AARTI && key === process.env.PRINT_KEY_AARTI) return { tag: 'aarti', doc: 'printState_aarti', match: /aarti/i };
+  return null;
+}
+
+// seller id of one order item (older orders: use the product's seller as it is now)
+async function itemSellerId(db, it, cache) {
+  if (it.sellerId) return it.sellerId;
+  if (!it.id) return '';
+  if (cache[it.id] !== undefined) return cache[it.id];
+  let sid = '';
+  try {
+    const ps = await db.collection('store').doc('product__' + it.id).get();
+    if (ps.exists) sid = ps.data().sellerId || '';
+  } catch { /* ignore */ }
+  cache[it.id] = sid;
+  return sid;
+}
+
+async function orderHasSeller(db, o, sellerIds, cache) {
+  for (const it of o.items || []) {
+    if (sellerIds.has(await itemSellerId(db, it, cache))) return true;
+  }
+  return false;
+}
+
 export default async function handler(req, res) {
   const key = req.headers['x-print-key'] || req.query.key;
-  if (!process.env.PRINT_KEY || key !== process.env.PRINT_KEY) {
+  const printer = identifyPrinter(key);
+  if (!printer) {
     return res.status(401).json({ error: 'unauthorized' });
   }
   const action = String(req.query.action || 'next');
@@ -49,7 +96,7 @@ export default async function handler(req, res) {
     }
 
     const db = getDb();
-    const stateRef = db.collection('store').doc('printState');
+    const stateRef = db.collection('store').doc(printer.doc);
 
     if (action === 'next') {
       const stSnap = await stateRef.get();
@@ -69,13 +116,33 @@ export default async function handler(req, res) {
       const startMs = new Date(st.startAt).getTime();
       const orders = await loadOrders(db);
       let pick = null;
-      orders.forEach((o, idx) => {
-        const t = new Date(o.createdAt).getTime();
-        if (!o.id || printed.has(o.id) || !(t >= startMs)) return;
-        if (!pick || t < pick.t) pick = { id: o.id, t, orderNumber: orders.length - idx };
-      });
-      // job application / seller registration slips waiting in the queue (same printState doc -> no extra read)
-      const queue = st.queue || {};
+      if (!printer.match) {
+        orders.forEach((o, idx) => {
+          const t = new Date(o.createdAt).getTime();
+          if (!o.id || printed.has(o.id) || !(t >= startMs)) return;
+          if (!pick || t < pick.t) pick = { id: o.id, t, orderNumber: orders.length - idx };
+        });
+      } else {
+        // seller printer: oldest unprinted order that has this seller's items; other orders are marked as skipped
+        const sellerIds = await loadSellerIdsByName(db, printer.match);
+        if (!sellerIds.size) return res.status(200).json({ none: true, note: 'seller not found in sellers list', ...extra });
+        const cands = [];
+        orders.forEach((o, idx) => {
+          const t = new Date(o.createdAt).getTime();
+          if (!o.id || printed.has(o.id) || !(t >= startMs)) return;
+          cands.push({ o, t, orderNumber: orders.length - idx });
+        });
+        cands.sort((a, b) => a.t - b.t);
+        const cache = {};
+        const skipIds = [];
+        for (const c of cands) {
+          if (await orderHasSeller(db, c.o, sellerIds, cache)) { pick = { id: c.o.id, t: c.t, orderNumber: c.orderNumber }; break; }
+          skipIds.push(c.o.id);
+        }
+        if (skipIds.length) await stateRef.set({ printedIds: FieldValue.arrayUnion(...skipIds) }, { merge: true });
+      }
+      // job application / seller registration slips waiting in the queue (main printer only)
+      const queue = printer.match ? {} : (st.queue || {});
       Object.entries(queue).forEach(([qid, it]) => {
         if (!it || !(Number(it.t) > 0)) return;
         if (!pick || it.t < pick.t) pick = { id: qid, t: it.t, orderNumber: it.no || 0 };
@@ -115,18 +182,21 @@ export default async function handler(req, res) {
         order = orders[idx]; num = orders.length - idx;
       }
       const names = await loadSellerNames(db);
+      const onlySellerIds = (printer.match && id !== 'test' && id !== 'sample') ? await loadSellerIdsByName(db, printer.match) : null;
+      const cache = {};
       const itemsWithParty = [];
       for (const it of order.items || []) {
-        let sid = it.sellerId;
-        if (!sid && it.id) {   // order saved before the product had a seller -> use the product's seller as it is now
-          try {
-            const ps = await db.collection('store').doc('product__' + it.id).get();
-            if (ps.exists) sid = ps.data().sellerId || '';
-          } catch { /* ignore */ }
-        }
+        const sid = await itemSellerId(db, it, cache);   // order saved before the product had a seller -> use the product's seller as it is now
+        if (onlySellerIds && !onlySellerIds.has(sid)) continue;   // seller printer: only this seller's items
         itemsWithParty.push({ ...it, partyName: names[sid] || '' });
       }
-      order = { ...order, items: itemsWithParty };
+      if (onlySellerIds) {
+        if (!itemsWithParty.length) return res.status(404).json({ error: 'no items of this seller in the order' });
+        const sum = itemsWithParty.reduce((a, it) => a + (Number(it.price) || 0) * (Number(it.qty) || 1), 0);
+        order = { ...order, items: itemsWithParty, total: sum };   // bill shows only this seller's items and total
+      } else {
+        order = { ...order, items: itemsWithParty };
+      }
       const canvas = renderBill(order, num);
       if (action === 'preview') {
         res.setHeader('Content-Type', 'image/png');
