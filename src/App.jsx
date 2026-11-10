@@ -13,6 +13,7 @@ import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from
 import { Analytics } from "@vercel/analytics/react";
 // ✅ PREMIUM LOGIN + WALLET
 import { useWallet, PremiumLoginButton, WalletPayBox, AdminCustomers } from "./PremiumWallet";
+import SiteSystem from "./SiteSystem";
 
 const firebaseConfig = {
   apiKey: "AIzaSyC9oJrhtVRE91_fF8FHEWXbcBJnY-916Zc",
@@ -194,6 +195,7 @@ async function applicationDelete(id) {
 // ---- Photo uploads from selected sellers (only Sandhya Traders for now) -> admin panel.
 // Same per-document pattern inside the existing "store" collection => no Firestore rules change needed. ----
 const SELLER_UPLOAD_PREFIX = "sellerupload__";
+const SITE_SYSTEM_MOBILE = "8128299664";   // only this seller login sees the "Site System" (hajri + upad) button; data lives in Firestore store/siteData
 const PHOTO_UPLOAD_SELLERS = ["sel-sandhya"];   // only these seller logins see the "ફોટો અપલોડ કરો" button
 const PO_PRINT_SELLERS = ["sel-sandhya"];       // only these seller logins see the "PO પ્રિન્ટ કરો" button
 // The PO is typed in by the seller (no AI, no API key). Bill To, item names, rates and GST are remembered on this phone
@@ -3317,6 +3319,7 @@ export default function ApniDukanApp() {
 
   // ---- seller photo upload (seller side) + admin list of uploaded photos ----
   const [upOpen, setUpOpen] = useState(false);
+  const [siteOpen, setSiteOpen] = useState(false);
   const [upPhoto, setUpPhoto] = useState("");
   const [upNote, setUpNote] = useState("");
   const [upBusy, setUpBusy] = useState(false);
@@ -5948,6 +5951,28 @@ export default function ApniDukanApp() {
                   {statBox("બાકી ડિલિવરી", notDelivered, notDelivered > 0)}
                   {statBox("આ મહિનાનું વેચાણ", formatRs(monthTotal))}
                 </div>
+
+                {(() => {
+                  const me = sellers.find((x) => x.id === sellerAuth.id);
+                  if (!me || String(me.mobile).trim() !== SITE_SYSTEM_MOBILE) return null;
+                  return (
+                    <div style={{ marginBottom: 12 }}>
+                      <button
+                        onClick={() => setSiteOpen(true)}
+                        style={{ width: "100%", padding: "11px 0", borderRadius: 10, border: "none", background: "#0B2545", color: "#fff", fontWeight: 800, fontSize: 14, cursor: "pointer" }}
+                      >
+                        🏗 Site System (હાજરી + ઉપાડ)
+                      </button>
+                      {siteOpen && (
+                        <SiteSystem
+                          onClose={() => setSiteOpen(false)}
+                          loadData={async () => { const r = await storageGet("siteData"); return r ? r.value : null; }}
+                          saveData={(v) => storageSet("siteData", v)}
+                        />
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {PHOTO_UPLOAD_SELLERS.includes(sellerAuth.id) && (
                   <div style={{ marginBottom: 12 }}>
