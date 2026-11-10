@@ -5986,7 +5986,7 @@ export default function ApniDukanApp() {
                         onClick={() => setHisabOpen(true)}
                         style={{ width: "100%", padding: "11px 0", borderRadius: 10, border: "none", background: "#7a2e1d", color: "#fff", fontWeight: 800, fontSize: 14, cursor: "pointer" }}
                       >
-                        📒 હિસાબ
+                        📒 ખાતાવહી (નોટબુક હિસાબ)
                       </button>
                       {hisabOpen && (
                         <HisabSystem

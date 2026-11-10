@@ -10,26 +10,41 @@ const inr = (n) => "₹" + Number(n || 0).toLocaleString("en-IN");
 const uid = () => Math.random().toString(36).slice(2, 9);
 const total = (k) => k.entries.reduce((s, e) => s + Number(e.amount || 0), 0);
 
-function NewKhata({ onAdd }) {
+function NewCard({ byNo, vacant, suggest, onAdd }) {
+  const [no, setNo] = useState(String(suggest));
   const [naam, setNaam] = useState("");
   const [gaon, setGaon] = useState("");
+  const taken = no ? byNo[Number(no)] : null;
+  const go = () => {
+    const n = Number(no);
+    if (!Number.isInteger(n) || n < 1) return window.alert("કાર્ડ નંબર લખો");
+    if (byNo[n]) return window.alert(`કાર્ડ નંબર ${n} ચાલુ છે (${byNo[n].naam || "નામ નથી"}). ખાલી નંબર પસંદ કરો.`);
+    if (!naam.trim()) return window.alert("નામ લખો");
+    onAdd(n, naam.trim(), gaon.trim());
+  };
   return (
     <div className="box noprint">
-      <b>+ નવું ખાતું</b>
+      <b>➕ નવું કાર્ડ</b>
+      <input inputMode="numeric" placeholder="કાર્ડ નંબર" value={no} onChange={(e) => setNo(e.target.value.replace(/\D/g, ""))} />
+      <div className="mut" style={{ minHeight: 20, fontSize: 14 }}>
+        {no ? (taken ? "⚠ આ નંબર ચાલુ છે: " + (taken.naam || "(નામ નથી)") : "✓ આ નંબર ખાલી છે") : ""}
+      </div>
+      {vacant.length > 0 && (
+        <>
+          <div className="mut" style={{ fontSize: 13 }}>ખાલી નંબર (દબાવીને પસંદ કરો):</div>
+          <div className="chips">
+            {vacant.slice(0, 30).map((n) => (
+              <button key={n} type="button" className="chip" onClick={() => setNo(String(n))}>{n}</button>
+            ))}
+            {vacant.length > 30 && <span className="mut">…</span>}
+          </div>
+        </>
+      )}
       <div className="row">
         <input placeholder="નામ" value={naam} onChange={(e) => setNaam(e.target.value)} />
         <input placeholder="ગામ" value={gaon} onChange={(e) => setGaon(e.target.value)} />
       </div>
-      <button
-        onClick={() => {
-          if (!naam.trim()) return;
-          onAdd(naam.trim(), gaon.trim());
-          setNaam("");
-          setGaon("");
-        }}
-      >
-        ઉમેરો
-      </button>
+      <button onClick={go}>ઉમેરો</button>
     </div>
   );
 }
@@ -40,7 +55,7 @@ const pad = (n) => String(n).padStart(2, "0");
 const iso = (y, m, d) => `${y}-${pad(m + 1)}-${pad(d)}`;
 const fmtDate = (d) => (d ? d.split("-").reverse().join("/") : "—");
 
-function Detail({ k, onBack, onChange, onDelete }) {
+function Detail({ k, onBack, onChange, onDelete, onToggleClose }) {
   const now = new Date();
   // કેલેન્ડર છેલ્લી એન્ટ્રીવાળા મહિનામાં ખૂલે; એન્ટ્રી ન હોય તો આજના મહિનામાં
   const latest = k.entries.map((e) => e.date).filter(Boolean).sort().pop();
@@ -111,9 +126,11 @@ function Detail({ k, onBack, onChange, onDelete }) {
 
       <div className="khname">
         <h2>{k.naam || "(નામ નથી)"}</h2>
-        <small>{k.gaon || "ગામ નથી"}</small>
+        <small>કાર્ડ નં. {k.no} · {k.gaon || "ગામ નથી"}</small>
         {k.note && <div className="warn">⚠ {k.note}</div>}
       </div>
+
+      {k.closed && <div className="closedbar">🔒 હિસાબ પૂરો{k.closedOn ? " · " + fmtDate(k.closedOn) : ""}<br /><small>કાર્ડ નંબર {k.no} ખાલી ગણાય છે — બીજાને આપી શકાય.</small></div>}
 
       {edit && (
         <div className="box noprint">
@@ -131,6 +148,10 @@ function Detail({ k, onBack, onChange, onDelete }) {
         <b>{inr(total(k))}</b>
         <small>{MONTHS[ym.m]}: {inr(monthTotal)}</small>
       </div>
+
+      <button className={"noprint " + (k.closed ? "" : "ghost")} onClick={onToggleClose}>
+        {k.closed ? "↩ એ જ ખાતું ફરી ચાલુ કરો" : "🔒 હિસાબ પૂરો — કાર્ડ બંધ કરો"}
+      </button>
 
       <div className="cal">
         <div className="calhd">
@@ -157,6 +178,9 @@ function Detail({ k, onBack, onChange, onDelete }) {
         <b>📅 {fmtDate(sel)}</b>
         {dayList.length === 0 && <div className="mut" style={{ margin: "6px 0" }}>આ તારીખે કોઈ એન્ટ્રી નથી.</div>}
         {dayList.map((e) => <Row key={e.id} e={e} />)}
+        {k.closed ? (
+          <div className="mut noprint" style={{ margin: "8px 0 2px" }}>બંધ કાર્ડમાં નવી એન્ટ્રી થતી નથી. આ નંબર બીજા કોઈને આપવો હોય તો પાછા જઈને “➕ નવું કાર્ડ” માં આ નંબર લખો.</div>
+        ) : (
         <div className="noprint">
           <div className="row">
             <input type="number" inputMode="numeric" placeholder="રકમ" value={amt} onChange={(e) => setAmt(e.target.value)} />
@@ -167,6 +191,7 @@ function Detail({ k, onBack, onChange, onDelete }) {
           </label>
           <button onClick={add}>{fmtDate(sel)} ની એન્ટ્રી ઉમેરો</button>
         </div>
+        )}
       </div>
 
       {undated.length > 0 && (
@@ -228,6 +253,14 @@ const css = `
 .hso .day.today{border-color:#7a2e1d}
 .hso .day.has em{color:#14532d}
 .hso .day.sel{outline:3px solid #7a2e1d;outline-offset:1px}
+.hso .tabs{display:flex;gap:8px;margin:10px 0 4px}
+.hso .tabs button{margin:0;flex:1;width:auto;background:transparent;color:#7a2e1d;border:1px solid #7a2e1d}
+.hso .tabs button.on{background:#7a2e1d;color:#fff}
+.hso .closedbar{background:#ece7d6;border:1px dashed #7b7562;color:#5b5646;text-align:center;padding:8px;border-radius:6px;margin:8px 0}
+.hso .chips{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 8px}
+.hso .chip{width:auto;margin:0;padding:5px 14px;background:#f6dfae;color:#7a4a00;border:1px solid #d9b46a;border-radius:14px;font-size:15px}
+.hso .flash{background:#c8ebc9;border:1px solid #2e8b3d;color:#14532d;border-radius:6px;padding:8px 10px;margin:8px 0;text-align:center}
+.hso .acts button{flex:1;width:auto;margin-top:0}
 .hso .syncbar{font-size:12px;text-align:center;padding:3px 8px;margin:-14px -14px 10px;background:#7a2e1d;color:#fbf6e9}
 .hso .syncbar.error{background:#a3261b}
 .hso .center{padding:60px 10px;text-align:center}
@@ -242,22 +275,37 @@ const defaultData = () => {
 // બેકઅપ કે સર્વરના ડેટાને સલામત આકારમાં ફેરવે છે
 function normalizeHisab(d) {
   const base = defaultData();
-  return {
-    month: String((d && d.month) || base.month),
-    khatas: (Array.isArray(d && d.khatas) ? d.khatas : []).map((k) => ({
-      id: k.id || uid(),
-      naam: String(k.naam || ""),
-      gaon: String(k.gaon || ""),
-      note: String(k.note || ""),
-      entries: (Array.isArray(k.entries) ? k.entries : []).map((e) => ({
-        id: e.id || uid(),
-        amount: Number(e.amount || 0),
-        date: e.date || "",
-        kiraya: !!e.kiraya,
-        vigat: String(e.vigat || ""),
-      })),
+  const khatas = (Array.isArray(d && d.khatas) ? d.khatas : []).map((k) => ({
+    id: k.id || uid(),
+    no: Number(k.no) || 0,
+    naam: String(k.naam || ""),
+    gaon: String(k.gaon || ""),
+    note: String(k.note || ""),
+    closed: !!k.closed,
+    closedOn: String(k.closedOn || ""),
+    entries: (Array.isArray(k.entries) ? k.entries : []).map((e) => ({
+      id: e.id || uid(),
+      amount: Number(e.amount || 0),
+      date: e.date || "",
+      kiraya: !!e.kiraya,
+      vigat: String(e.vigat || ""),
     })),
-  };
+  }));
+  // કાર્ડ નંબર: ચાલુ કાર્ડમાં દરેક નંબર અલગ. જૂના ડેટામાં નંબર ન હોય તો યાદીના ક્રમ મુજબ (1, 2, 3…) મળે.
+  const used = new Set();
+  khatas.forEach((k) => {
+    if (k.no > 0 && !k.closed && !used.has(k.no)) used.add(k.no);
+    else if (k.no > 0 && k.closed) { /* બંધ કાર્ડનો જૂનો નંબર જેમ છે તેમ */ }
+    else k.no = 0;
+  });
+  khatas.forEach((k, i) => {
+    if (k.no) return;
+    let n = i + 1;
+    while (!k.closed && used.has(n)) n++;
+    k.no = n;
+    if (!k.closed) used.add(n);
+  });
+  return { month: String((d && d.month) || base.month), khatas };
 }
 
 export default function HisabSystem({ onClose, loadData, saveData }) {
@@ -266,6 +314,13 @@ export default function HisabSystem({ onClose, loadData, saveData }) {
   const [sync, setSync] = useState("saved"); // saved | saving | error
   const [openId, setOpenId] = useState(null);
   const [q, setQ] = useState("");
+  const [tab, setTab] = useState("open"); // open | closed
+  const [panel, setPanel] = useState(null); // null | entry | card
+  const [flash, setFlash] = useState("");
+  const [qNo, setQNo] = useState("");
+  const [qAmt, setQAmt] = useState("");
+  const [qVigat, setQVigat] = useState("");
+  const [qKiraya, setQKiraya] = useState(false);
 
   const dataRef = useRef(data);
   const dirty = useRef(false);
@@ -358,11 +413,70 @@ export default function HisabSystem({ onClose, loadData, saveData }) {
     if (onClose) onClose();
   };
 
-  const grand = useMemo(() => data.khatas.reduce((s, k) => s + total(k), 0), [data]);
+  const grand = useMemo(() => data.khatas.filter((k) => !k.closed).reduce((s, k) => s + total(k), 0), [data]);
+  const closedTotal = useMemo(() => data.khatas.filter((k) => k.closed).reduce((s, k) => s + total(k), 0), [data]);
+  // ચાલુ કાર્ડના નંબર, ખાલી નંબર અને સૂચવેલો નંબર
+  const { byNo, vacant, nextNo } = useMemo(() => {
+    const act = {};
+    let mx = 0;
+    data.khatas.forEach((k) => {
+      mx = Math.max(mx, k.no || 0);
+      if (!k.closed) act[k.no] = k;
+    });
+    const v = [];
+    for (let n = 1; n <= mx; n++) if (!act[n]) v.push(n);
+    return { byNo: act, vacant: v, nextNo: mx + 1 };
+  }, [data]);
+  const suggest = vacant.length ? vacant[0] : nextNo;
+  const openCount = data.khatas.filter((k) => !k.closed).length;
+  const closedCount = data.khatas.length - openCount;
+  const say = (m) => {
+    setFlash(m);
+    setTimeout(() => setFlash(""), 3500);
+  };
   const updateKhata = (id, patch) =>
     setData((d) => ({ ...d, khatas: d.khatas.map((k) => (k.id === id ? { ...k, ...patch } : k)) }));
-  const addKhata = (naam, gaon) =>
-    setData((d) => ({ ...d, khatas: [...d.khatas, { id: uid(), naam, gaon, note: "", entries: [] }] }));
+  const addKhata = (no, naam, gaon) =>
+    setData((d) => ({ ...d, khatas: [...d.khatas, { id: uid(), no, naam, gaon, note: "", closed: false, closedOn: "", entries: [] }] }));
+
+  const toggleClose = (id) => {
+    const k = data.khatas.find((x) => x.id === id);
+    if (!k) return;
+    const n = new Date();
+    if (!k.closed) {
+      if (!window.confirm(`આ કાર્ડનો હિસાબ પૂરો થયો? કાર્ડ નંબર ${k.no} ખાલી થશે અને બીજાને આપી શકાશે. જૂનો હિસાબ 'બંધ કાર્ડ' માં સચવાયેલો રહેશે.`)) return;
+      updateKhata(id, { closed: true, closedOn: iso(n.getFullYear(), n.getMonth(), n.getDate()) });
+      setOpenId(null);
+      say(`🔒 હિસાબ પૂરો — કાર્ડ નંબર ${k.no} ખાલી થયો`);
+      return;
+    }
+    // એ જ ખાતું ફરી ચાલુ: નંબર હજી ખાલી હોય તો એ જ, નહીંતર નવો નંબર
+    let no = k.no;
+    if (byNo[no]) {
+      const r = window.prompt(`કાર્ડ નંબર ${no} હવે બીજાને (${byNo[no].naam || "નામ નથી"}) આપેલો છે. આ ખાતા માટે નવો નંબર લખો:`, String(suggest));
+      if (r === null) return;
+      no = Number(r);
+      if (!Number.isInteger(no) || no < 1 || byNo[no]) return window.alert("આ નંબર ચાલુ છે કે ખોટો છે.");
+    }
+    updateKhata(id, { closed: false, closedOn: "", no });
+    setOpenId(null);
+    setTab("open");
+    say(`✓ કાર્ડ નંબર ${no} ફરી ચાલુ થયું`);
+  };
+
+  // જલ્દી એન્ટ્રી: કાર્ડ નંબર + રકમ → આજની તારીખે એન્ટ્રી
+  const qCard = qNo && byNo[Number(qNo)] ? { k: byNo[Number(qNo)], no: Number(qNo) } : null;
+  const quickAdd = () => {
+    const a = Number(qAmt);
+    if (!qCard) return window.alert("ચાલુ કાર્ડનો સાચો નંબર લખો");
+    if (!a) return window.alert("રકમ લખો");
+    const n = new Date();
+    updateKhata(qCard.k.id, {
+      entries: [...qCard.k.entries, { id: uid(), amount: a, date: iso(n.getFullYear(), n.getMonth(), n.getDate()), kiraya: qKiraya, vigat: qVigat.trim() }],
+    });
+    say(`✓ ${qCard.k.naam} (કાર્ડ ${qCard.no}) માં ${inr(a)} ઉમેર્યા`);
+    setQNo(""); setQAmt(""); setQVigat(""); setQKiraya(false);
+  };
 
   const backup = () => {
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
@@ -393,9 +507,18 @@ export default function HisabSystem({ onClose, loadData, saveData }) {
   };
 
   const open = data.khatas.find((k) => k.id === openId);
+  const searching = !!q.trim();
   const list = data.khatas
-    .map((k, i) => ({ k, no: i + 1 }))
-    .filter(({ no }) => !q.trim() || no === Number(q.trim())); // ફક્ત કાર્ડ નંબરથી શોધ
+    .map((k) => ({ k, no: k.no }))
+    // કાર્ડ નંબરથી શોધ (ચાલુ + બંધ બંનેમાં, ચાલુ પહેલાં); નહીંતર પસંદ કરેલા ટેબ મુજબ
+    .filter(({ k, no }) => (searching ? no === Number(q.trim()) : (tab === "closed") === !!k.closed))
+    .sort((x, y) =>
+      searching
+        ? Number(!!x.k.closed) - Number(!!y.k.closed)
+        : tab === "closed"
+        ? String(y.k.closedOn).localeCompare(String(x.k.closedOn)) || x.no - y.no
+        : x.no - y.no
+    );
 
   let body;
   if (phase === "loading") body = <div className="center">⏳ ડેટા લોડ થઈ રહ્યો છે…</div>;
@@ -413,6 +536,7 @@ export default function HisabSystem({ onClose, loadData, saveData }) {
         k={open}
         onBack={() => setOpenId(null)}
         onChange={(patch) => updateKhata(open.id, patch)}
+        onToggleClose={() => toggleClose(open.id)}
         onDelete={() => {
           if (window.confirm("આ ખાતું કાયમ માટે કાઢી નાખવું?")) {
             setData((d) => ({ ...d, khatas: d.khatas.filter((k) => k.id !== open.id) }));
@@ -431,10 +555,45 @@ export default function HisabSystem({ onClose, loadData, saveData }) {
         </div>
 
         <div className="grand">
-          <div>કુલ સરવાળો</div>
+          <div>ચાલુ કાર્ડનો કુલ સરવાળો</div>
           <b>{inr(grand)}</b>
-          <small>{data.khatas.length} ખાતા</small>
+          <small>{openCount} ચાલુ · {closedCount} બંધ</small>
         </div>
+
+        <div className="row acts noprint">
+          <button className={panel === "entry" ? "" : "ghost"} onClick={() => setPanel(panel === "entry" ? null : "entry")}>✍ એન્ટ્રી</button>
+          <button className={panel === "card" ? "" : "ghost"} onClick={() => setPanel(panel === "card" ? null : "card")}>➕ નવું કાર્ડ</button>
+        </div>
+        {flash && <div className="flash noprint">{flash}</div>}
+        {panel === "card" && (
+          <NewCard byNo={byNo} vacant={vacant} suggest={suggest} onAdd={(no, n, g) => { addKhata(no, n, g); setPanel(null); say(`✓ કાર્ડ નંબર ${no} બન્યું: ${n}`); }} />
+        )}
+        {panel === "entry" && (
+          <div className="box noprint">
+            <b>✍ જલ્દી એન્ટ્રી (આજની તારીખે)</b>
+            <input inputMode="numeric" placeholder="કાર્ડ નંબર" value={qNo} onChange={(e) => setQNo(e.target.value.replace(/\D/g, ""))} />
+            <div className="mut" style={{ minHeight: 20, fontSize: 14 }}>
+              {qCard ? "→ " + (qCard.k.naam || "(નામ નથી)") + " (" + (qCard.k.gaon || "ગામ નથી") + ")" : qNo ? "ચાલુ કાર્ડ મળ્યું નથી" : ""}
+            </div>
+            <div className="row">
+              <input type="number" inputMode="numeric" placeholder="રકમ" value={qAmt} onChange={(e) => setQAmt(e.target.value)} />
+              <input placeholder="વિગત (વૈકલ્પિક)" value={qVigat} onChange={(e) => setQVigat(e.target.value)} />
+            </div>
+            <label className="chk"><input type="checkbox" checked={qKiraya} onChange={(e) => setQKiraya(e.target.checked)} /> ભાડું</label>
+            <button onClick={quickAdd}>એન્ટ્રી ઉમેરો</button>
+          </div>
+        )}
+
+        <div className="tabs noprint">
+          <button className={tab === "open" ? "on" : ""} onClick={() => setTab("open")}>ચાલુ કાર્ડ ({openCount})</button>
+          <button className={tab === "closed" ? "on" : ""} onClick={() => setTab("closed")}>બંધ · હિસાબ પૂરો ({closedCount})</button>
+        </div>
+        {tab === "open" && !searching && vacant.length > 0 && (
+          <div className="mut noprint" style={{ fontSize: 13, textAlign: "center" }}>
+            ખાલી કાર્ડ નંબર ({vacant.length}): {vacant.slice(0, 12).join(", ")}{vacant.length > 12 ? "…" : ""}
+          </div>
+        )}
+        {tab === "closed" && !searching && closedCount > 0 && <div className="mut" style={{ textAlign: "center" }}>બંધ કાર્ડનો કુલ: {inr(closedTotal)}</div>}
 
         <input className="noprint search" inputMode="numeric" placeholder="🔍 કાર્ડ નંબર લખો" value={q} onChange={(e) => setQ(e.target.value.replace(/\D/g, ""))} />
 
@@ -442,18 +601,16 @@ export default function HisabSystem({ onClose, loadData, saveData }) {
           {list.map(({ k, no }) => (
             <div key={k.id} className="line" onClick={() => setOpenId(k.id)}>
               <div>
-                <div className="nm">{no}. {k.naam || "(નામ નથી)"}</div>
+                <div className="nm">{no}. {k.naam || "(નામ નથી)"} {k.closed && <span className="tag">🔒 હિસાબ પૂરો{k.closedOn ? " · " + fmtDate(k.closedOn) : ""}</span>}</div>
                 <small>{k.gaon || "ગામ નથી"} · {k.entries.length} એન્ટ્રી</small>
                 {k.note && <div className="warn">⚠ {k.note}</div>}
               </div>
               <b className="amt">{inr(total(k))}</b>
             </div>
           ))}
-          {data.khatas.length === 0 && <p className="mut">હજી કોઈ ખાતું નથી. નીચેથી પહેલું ખાતું ઉમેરો.</p>}
-          {data.khatas.length > 0 && list.length === 0 && <p className="mut">કંઈ મળ્યું નથી.</p>}
+          {data.khatas.length === 0 && <p className="mut">હજી કોઈ ખાતું નથી. ઉપરથી “➕ નવું કાર્ડ” દબાવો.</p>}
+          {data.khatas.length > 0 && list.length === 0 && <p className="mut">{searching ? "કંઈ મળ્યું નથી." : tab === "closed" ? "કોઈ બંધ કાર્ડ નથી." : "કોઈ ચાલુ કાર્ડ નથી."}</p>}
         </div>
-
-        <NewKhata onAdd={addKhata} />
 
         <div className="row noprint">
           <button className="ghost" onClick={() => window.print()}>🖨 PDF / પ્રિન્ટ</button>
