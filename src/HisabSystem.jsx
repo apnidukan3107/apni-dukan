@@ -267,10 +267,7 @@ const css = `
 @media print{body > *:not(.hso){display:none !important}.hso{position:static;overflow:visible;background:#fff}.hso .wrap{box-shadow:none;border:0}.hso .noprint{display:none!important}}
 `;
 
-const defaultData = () => {
-  const n = new Date();
-  return { month: MONTHS[n.getMonth()] + " " + n.getFullYear(), khatas: [] };
-};
+const defaultData = () => ({ month: "Sai Communication", khatas: [] });
 
 // બેકઅપ કે સર્વરના ડેટાને સલામત આકારમાં ફેરવે છે
 function normalizeHisab(d) {

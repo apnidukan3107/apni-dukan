@@ -406,6 +406,6 @@ const RAW = [
 
 
 export const makeSeed = () => ({
-  month: "સપ્ટેમ્બર 2026",
+  month: "Sai Communication",
   khatas: RAW.map(([n, g, a, note]) => mk(n, g, a, note)),
 });
