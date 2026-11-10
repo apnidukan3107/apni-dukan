@@ -14,6 +14,7 @@ import { Analytics } from "@vercel/analytics/react";
 // ✅ PREMIUM LOGIN + WALLET
 import { useWallet, PremiumLoginButton, WalletPayBox, AdminCustomers } from "./PremiumWallet";
 import SiteSystem from "./SiteSystem";
+import HisabSystem from "./HisabSystem";
 
 const firebaseConfig = {
   apiKey: "AIzaSyC9oJrhtVRE91_fF8FHEWXbcBJnY-916Zc",
@@ -195,6 +196,7 @@ async function applicationDelete(id) {
 // ---- Photo uploads from selected sellers (only Sandhya Traders for now) -> admin panel.
 // Same per-document pattern inside the existing "store" collection => no Firestore rules change needed. ----
 const SELLER_UPLOAD_PREFIX = "sellerupload__";
+const HISAB_SYSTEM_MOBILE = "7778889429";   // only this seller login sees the "Hisab" ledger button; data lives in Firestore store/hisabData
 const SITE_SYSTEM_MOBILE = "8128299664";   // only this seller login sees the "Site System" (hajri + upad) button; data lives in Firestore store/siteData
 const PHOTO_UPLOAD_SELLERS = ["sel-sandhya"];   // only these seller logins see the "ફોટો અપલોડ કરો" button
 const PO_PRINT_SELLERS = ["sel-sandhya"];       // only these seller logins see the "PO પ્રિન્ટ કરો" button
@@ -3320,6 +3322,7 @@ export default function ApniDukanApp() {
   // ---- seller photo upload (seller side) + admin list of uploaded photos ----
   const [upOpen, setUpOpen] = useState(false);
   const [siteOpen, setSiteOpen] = useState(false);
+  const [hisabOpen, setHisabOpen] = useState(false);
   const [upPhoto, setUpPhoto] = useState("");
   const [upNote, setUpNote] = useState("");
   const [upBusy, setUpBusy] = useState(false);
@@ -5968,6 +5971,28 @@ export default function ApniDukanApp() {
                           onClose={() => setSiteOpen(false)}
                           loadData={async () => { const r = await storageGet("siteData"); return r ? r.value : null; }}
                           saveData={(v) => storageSet("siteData", v)}
+                        />
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {(() => {
+                  const me = sellers.find((x) => x.id === sellerAuth.id);
+                  if (!me || String(me.mobile).trim() !== HISAB_SYSTEM_MOBILE) return null;
+                  return (
+                    <div style={{ marginBottom: 12 }}>
+                      <button
+                        onClick={() => setHisabOpen(true)}
+                        style={{ width: "100%", padding: "11px 0", borderRadius: 10, border: "none", background: "#7a2e1d", color: "#fff", fontWeight: 800, fontSize: 14, cursor: "pointer" }}
+                      >
+                        📒 હિસાબ
+                      </button>
+                      {hisabOpen && (
+                        <HisabSystem
+                          onClose={() => setHisabOpen(false)}
+                          loadData={async () => { const r = await storageGet("hisabData"); return r ? r.value : null; }}
+                          saveData={(v) => storageSet("hisabData", v)}
                         />
                       )}
                     </div>
