@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
+import { makeSeed } from "./HisabSeed";
 
 // 📒 હિસાબ સિસ્ટમ: ખાતું (નામ + ગામ) → તારીખ મુજબ એન્ટ્રી (રકમ, ભાડું, વિગત) → કુલ સરવાળો
 // ડેટા Firestore (store/hisabData) માં સર્વર પર સચવાય છે — loadData / saveData App.jsx માંથી મળે છે.
@@ -180,6 +181,7 @@ function Detail({ k, onBack, onChange, onDelete }) {
 }
 
 const css = `
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+Gujarati:wght@400;600;700&display=swap');
 .hso *{box-sizing:border-box}
 .hso{margin:0;background:#e9e1c8;font-family:"Noto Serif Gujarati",Georgia,serif;color:#2b2a26;position:fixed;inset:0;z-index:9999;overflow-y:auto;-webkit-overflow-scrolling:touch}
 .hso .wrap{max-width:520px;margin:0 auto;min-height:100vh;padding:14px 14px 40px;background:#fbf6e9;border-left:3px double #d9a79c;box-shadow:0 0 18px #0002}
@@ -295,12 +297,18 @@ export default function HisabSystem({ onClose, loadData, saveData }) {
     setPhase("loading");
     try {
       const raw = await loadData();
-      const d = raw ? normalizeHisab(JSON.parse(raw)) : defaultData();
+      // સર્વર પર ડેટા ન હોય (પહેલી વાર) તો નોટબુકનો શરૂઆતનો ડેટા (હિસાબ 1-380) લોડ થાય અને સર્વર પર સેવ થાય
+      const seeded = !raw;
+      const d = raw ? normalizeHisab(JSON.parse(raw)) : normalizeHisab(makeSeed());
       dataRef.current = d;
       justLoaded.current = true;
       loaded.current = true;
       setData(d);
       setPhase("ready");
+      if (seeded) {
+        dirty.current = true;
+        flush();
+      }
     } catch (e) {
       // સર્વર પરથી ડેટા ન આવે તો ખાલી ડેટા સેવ ન થઈ જાય એટલે અહીં અટકી જઈએ છીએ
       console.error("hisab load failed", e);
