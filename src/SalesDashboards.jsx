@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import {
   Store, ClipboardList, Package, TrendingUp, Plus, LogOut, Lock,
-  User, Users, Loader2, ShieldCheck, ArrowLeft, Send, X,
+  User, Users, Loader2, ShieldCheck, ArrowLeft, Send, X, UserCheck, Clock,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -37,6 +37,40 @@ const isThisMonth = (t) => {
 const rupee = (n) => "₹" + Number(n || 0).toLocaleString("en-IN");
 const timeOf = (t) => new Date(t).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
 const sum = (list) => list.reduce((s, v) => s + (Number(v.amount) || 0), 0);
+
+export function fmtRemaining(sec) {
+  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), x = sec % 60;
+  return `${h}:${String(m).padStart(2, "0")}:${String(x).padStart(2, "0")}`;
+}
+
+// Reverse timer chip: yellow normally, red in the last 10 minutes.
+function TimerChip({ remaining }) {
+  const low = remaining < 600;
+  return (
+    <span style={{ background: low ? "#B23B3B" : YELLOW, color: low ? "#fff" : NAVY, fontWeight: 800, fontSize: 13, padding: "4px 10px", borderRadius: 14, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums", display: "inline-flex", alignItems: "center", gap: 4 }}>
+      <Clock size={13} /> {fmtRemaining(remaining)}
+    </span>
+  );
+}
+
+// Strip shown on the storefront (front page, cart, checkout...) while a sales person is logged in.
+export function SalesSessionBar({ user, remaining, onOpen }) {
+  return (
+    <div style={{ flexShrink: 0, background: NAVY, color: "#fff", padding: "8px 12px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+        <UserCheck size={18} color={YELLOW} style={{ flex: "none" }} />
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.name}</div>
+          <div style={{ fontSize: 11, color: "#b9c3e6" }}>{user.role} login</div>
+        </div>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flex: "none" }}>
+        <TimerChip remaining={remaining} />
+        <button onClick={onOpen} style={{ background: "rgba(255,255,255,0.14)", color: "#fff", border: "none", borderRadius: 8, padding: "6px 10px", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>Dashboard</button>
+      </div>
+    </div>
+  );
+}
 
 const inputStyle = {
   width: "100%", boxSizing: "border-box", border: "1px solid #d9dce3", background: "#fff",
@@ -223,7 +257,7 @@ function VisitForm({ onSave, onCancel }) {
 // ---------------------------------------------------------------------------
 // SALES EXECUTIVE dashboard  (Design 2: navy + yellow brand tiles)
 // ---------------------------------------------------------------------------
-function ExecDashboard({ user, visits, onAddVisit, onLogout }) {
+function ExecDashboard({ user, visits, onAddVisit, onLogout, remaining }) {
   const [open, setOpen] = useState(false);
   const today = useMemo(
     () => visits.filter((v) => v.by === user.id && isToday(v.createdAt)).sort((a, b) => b.createdAt - a.createdAt),
@@ -247,9 +281,12 @@ function ExecDashboard({ user, visits, onAddVisit, onLogout }) {
           <div style={{ fontSize: 11, color: YELLOW }}>apnidukanSE.in · Sales Executive</div>
           <div style={{ fontSize: 17, fontWeight: 800, marginTop: 2 }}>નમસ્તે, {user.name}</div>
         </div>
-        <button onClick={onLogout} aria-label="લોગઆઉટ" style={{ background: "rgba(255,255,255,0.12)", border: "none", borderRadius: 10, width: 36, height: 36, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <LogOut size={17} color="#fff" />
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <TimerChip remaining={remaining} />
+          <button onClick={onLogout} aria-label="લોગઆઉટ" style={{ background: "rgba(255,255,255,0.12)", border: "none", borderRadius: 10, width: 36, height: 36, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <LogOut size={17} color="#fff" />
+          </button>
+        </div>
       </div>
 
       <div style={{ background: YELLOW, margin: "12px 12px 0", borderRadius: 14, padding: 12 }}>
@@ -309,7 +346,7 @@ function ExecDashboard({ user, visits, onAddVisit, onLogout }) {
 // ---------------------------------------------------------------------------
 // SALES OFFICER dashboard  (Design 3: dark with progress ring)
 // ---------------------------------------------------------------------------
-function OfficerDashboard({ user, visits, applications, onLogout }) {
+function OfficerDashboard({ user, visits, applications, onLogout, remaining }) {
   const execs = useMemo(
     () => applications.filter((a) => a.job === SE_ROLE && a.status === SELECTED_STATUS),
     [applications]
@@ -352,9 +389,12 @@ function OfficerDashboard({ user, visits, applications, onLogout }) {
           <div style={{ fontSize: 12, color: "#8F9BBA" }}>નમસ્તે, {user.name}</div>
           <div style={{ fontSize: 18, fontWeight: 800 }}>Sales Officer</div>
         </div>
-        <button onClick={onLogout} aria-label="લોગઆઉટ" style={{ background: DARK2, border: "none", borderRadius: 10, width: 36, height: 36, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <LogOut size={17} color="#E8ECF8" />
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <TimerChip remaining={remaining} />
+          <button onClick={onLogout} aria-label="લોગઆઉટ" style={{ background: DARK2, border: "none", borderRadius: 10, width: 36, height: 36, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <LogOut size={17} color="#E8ECF8" />
+          </button>
+        </div>
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 14, padding: 14 }}>
@@ -413,11 +453,11 @@ function OfficerDashboard({ user, visits, applications, onLogout }) {
 }
 
 // ---------------------------------------------------------------------------
-export function SalesDashboard({ user, visits, applications, onAddVisit, onLogout }) {
+export function SalesDashboard({ user, visits, applications, onAddVisit, onLogout, remaining }) {
   if (!user) return null;
   return user.role === SO_ROLE ? (
-    <OfficerDashboard user={user} visits={visits} applications={applications} onLogout={onLogout} />
+    <OfficerDashboard user={user} visits={visits} applications={applications} onLogout={onLogout} remaining={remaining} />
   ) : (
-    <ExecDashboard user={user} visits={visits} onAddVisit={onAddVisit} onLogout={onLogout} />
+    <ExecDashboard user={user} visits={visits} onAddVisit={onAddVisit} onLogout={onLogout} remaining={remaining} />
   );
 }

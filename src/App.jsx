@@ -15,7 +15,7 @@ import { Analytics } from "@vercel/analytics/react";
 import { useWallet, PremiumLoginButton, WalletPayBox, AdminCustomers } from "./PremiumWallet";
 import SiteSystem from "./SiteSystem";
 import HisabSystem from "./HisabSystem";
-import { SalesGate, SalesDashboard } from "./SalesDashboards";
+import { SalesGate, SalesDashboard, SalesSessionBar } from "./SalesDashboards";
 
 const firebaseConfig = {
   apiKey: "AIzaSyC9oJrhtVRE91_fF8FHEWXbcBJnY-916Zc",
@@ -3937,14 +3937,30 @@ export default function ApniDukanApp() {
   }, []);
 
   // ---- Sales Officer / Sales Executive login + dashboard ----
+  // Login is valid for 6 hours from the moment of login (loginAt is saved, so refresh / leaving the tab does not reset it).
+  const SALES_SESSION_MS = 6 * 60 * 60 * 1000;
   const [salesAuth, setSalesAuth] = useState(() => {
     try {
       const raw = localStorage.getItem("apniDukanSales");
-      return raw ? JSON.parse(raw) : null;
+      const u = raw ? JSON.parse(raw) : null;
+      return u && u.loginAt && Date.now() < u.loginAt + SALES_SESSION_MS ? u : null;
     } catch {
       return null;
     }
   });
+  const [salesNow, setSalesNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!salesAuth) return undefined;
+    setSalesNow(Date.now());
+    const t = setInterval(() => setSalesNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [salesAuth]);
+  const salesRemaining = salesAuth
+    ? Math.max(0, Math.floor((salesAuth.loginAt + SALES_SESSION_MS - salesNow) / 1000))
+    : 0;
+  useEffect(() => {
+    if (salesAuth && salesRemaining <= 0) salesLogout();
+  }, [salesAuth, salesRemaining]);
   const [salesVisits, setSalesVisits] = useState([]);
   useEffect(() => {
     if (!salesAuth) return undefined;
@@ -3960,15 +3976,17 @@ export default function ApniDukanApp() {
     return false;
   }
   function gateSalesSuccess(user) {
-    try { localStorage.setItem("apniDukanSales", JSON.stringify(user)); } catch {}
-    setSalesAuth(user);
+    const u = { ...user, loginAt: Date.now() };
+    try { localStorage.setItem("apniDukanSales", JSON.stringify(u)); } catch {}
+    setSalesNow(Date.now());
+    setSalesAuth(u);
     setView("salesDash");
   }
   function salesLogout() {
     try { localStorage.removeItem("apniDukanSales"); } catch {}
     setSalesAuth(null);
     setSalesVisits([]);
-    setView("home");
+    setView((v) => (v === "salesDash" ? "home" : v));
   }
   async function salesAddVisit(data) {
     if (!salesAuth) return;
@@ -4905,6 +4923,11 @@ export default function ApniDukanApp() {
           </div>
         )}
 
+        {/* SALES LOGIN STRIP: name + 6 hour reverse timer on the storefront */}
+        {salesAuth && !["salesDash", "gate", "admin", "adminLogin"].includes(view) && (
+          <SalesSessionBar user={salesAuth} remaining={salesRemaining} onOpen={() => setView("salesDash")} />
+        )}
+
         {/* HOME */}
         {view === "home" && (
           <div style={styles.scrollArea} className="scroll-area view-home">
@@ -5825,6 +5848,7 @@ export default function ApniDukanApp() {
               applications={applications}
               onAddVisit={salesAddVisit}
               onLogout={salesLogout}
+              remaining={salesRemaining}
             />
           </div>
         )}
