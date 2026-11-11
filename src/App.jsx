@@ -15,6 +15,7 @@ import { Analytics } from "@vercel/analytics/react";
 import { useWallet, PremiumLoginButton, WalletPayBox, AdminCustomers } from "./PremiumWallet";
 import SiteSystem from "./SiteSystem";
 import HisabSystem from "./HisabSystem";
+import { SalesGate, SalesDashboard } from "./SalesDashboards";
 
 const firebaseConfig = {
   apiKey: "AIzaSyC9oJrhtVRE91_fF8FHEWXbcBJnY-916Zc",
@@ -192,6 +193,29 @@ async function applicationSave(app) {
 }
 async function applicationDelete(id) {
   await deleteDoc(doc(db, "store", applicationKey(id)));
+}
+// ---- Sales team visit entries (Sales Executive dashboard). Same per-document
+// pattern inside the existing "store" collection => no Firestore rules change needed. ----
+const VISIT_KEY_PREFIX = "visit__";
+function visitsListen(onChange) {
+  return onSnapshot(
+    collection(db, "store"),
+    (snap) => {
+      const list = snap.docs
+        .filter((d) => d.id.startsWith(VISIT_KEY_PREFIX))
+        .map((d) => {
+          const { type, ...fields } = d.data();
+          return { id: d.id.slice(VISIT_KEY_PREFIX.length), ...fields };
+        })
+        .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      onChange(list);
+    },
+    (err) => console.error("visitsListen error", err)
+  );
+}
+async function visitSave(v) {
+  const { id, ...rest } = v;
+  await setDoc(doc(db, "store", VISIT_KEY_PREFIX + id), { ...rest, type: "visit" });
 }
 // ---- Photo uploads from selected sellers (only Sandhya Traders for now) -> admin panel.
 // Same per-document pattern inside the existing "store" collection => no Firestore rules change needed. ----
@@ -3912,6 +3936,49 @@ export default function ApniDukanApp() {
     return () => unsubscribe();
   }, []);
 
+  // ---- Sales Officer / Sales Executive login + dashboard ----
+  const [salesAuth, setSalesAuth] = useState(() => {
+    try {
+      const raw = localStorage.getItem("apniDukanSales");
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [salesVisits, setSalesVisits] = useState([]);
+  useEffect(() => {
+    if (!salesAuth) return undefined;
+    const unsubscribe = visitsListen(setSalesVisits);
+    return () => unsubscribe();
+  }, [salesAuth]);
+  function gateAdminLogin(pin) {
+    if (pin === ADMIN_PIN) {
+      setIsAdmin(true);
+      setView("admin");
+      return true;
+    }
+    return false;
+  }
+  function gateSalesSuccess(user) {
+    try { localStorage.setItem("apniDukanSales", JSON.stringify(user)); } catch {}
+    setSalesAuth(user);
+    setView("salesDash");
+  }
+  function salesLogout() {
+    try { localStorage.removeItem("apniDukanSales"); } catch {}
+    setSalesAuth(null);
+    setSalesVisits([]);
+    setView("home");
+  }
+  async function salesAddVisit(data) {
+    if (!salesAuth) return;
+    await visitSave({
+      id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      by: salesAuth.id, byName: salesAuth.name, role: salesAuth.role,
+      ...data, createdAt: Date.now(),
+    });
+  }
+
   // Live enquiries — same real-time + notification pattern as orders, so
   // the admin finds out about a new "New Enquiry" submission immediately.
   const [enquiries, setEnquiries] = useState([]);
@@ -4709,7 +4776,7 @@ export default function ApniDukanApp() {
                 <button style={styles.iconBtn} onClick={() => setView(sellerAuth ? "sellerOrders" : "sellerLogin")} aria-label="સેલર લોગિન">
                   <Store size={18} color={sellerAuth ? T.greenDeep : T.ink} />
                 </button>
-                <button style={styles.iconBtn} onClick={() => setView(isAdmin ? "admin" : "adminLogin")} aria-label="એડમિન">
+                <button style={styles.iconBtn} onClick={() => setView(isAdmin ? "admin" : salesAuth ? "salesDash" : "gate")} aria-label="લોગિન">
                   <Settings size={18} color={T.ink} />
                 </button>
                 <button style={styles.cartIconBtn} onClick={() => setView("cart")} aria-label="કાર્ટ">
@@ -4726,6 +4793,8 @@ export default function ApniDukanApp() {
             {view === "sellerRegister" && <div style={styles.brand}>સેલર રજિસ્ટ્રેશન</div>}
             {view === "sellerOrders" && <div style={styles.brand}>સેલર ઓર્ડર્સ</div>}
             {view === "careers" && <div style={styles.brand}>કરિયર</div>}
+            {view === "gate" && <div style={styles.brand}>લોગિન</div>}
+            {view === "salesDash" && <div style={styles.brand}>{salesAuth ? salesAuth.role : "ડેશબોર્ડ"}</div>}
           </div>
           {view === "home" && (
             <div style={{ display: "flex", justifyContent: "flex-end", padding: "8px 0 2px" }}>
@@ -5739,6 +5808,24 @@ export default function ApniDukanApp() {
             />
             {pinError && <div style={styles.errorText}>{pinError}</div>}
             <button style={styles.primaryBtn} onClick={tryAdminLogin}>લોગિન</button>
+          </div>
+        )}
+
+        {/* SETTINGS GATE: Loading -> Who are you? -> Admin / Sales Officer / Sales Executive */}
+        {view === "gate" && (
+          <SalesGate applications={applications} onAdminLogin={gateAdminLogin} onSuccess={gateSalesSuccess} />
+        )}
+
+        {/* SALES OFFICER / SALES EXECUTIVE DASHBOARD */}
+        {view === "salesDash" && salesAuth && (
+          <div style={styles.scrollArea} className="scroll-area">
+            <SalesDashboard
+              user={salesAuth}
+              visits={salesVisits}
+              applications={applications}
+              onAddVisit={salesAddVisit}
+              onLogout={salesLogout}
+            />
           </div>
         )}
 
