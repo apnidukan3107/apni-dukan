@@ -398,3 +398,117 @@ export const SAMPLE_PO = {
   ],
   subTotal: 426, gstTotal: 76.68, total: 502.68, payment: '45 days after receipt of material',
 };
+
+
+// ---------------------------------------------------------------------------
+// Daily report slip (MATESHWARI DUGDHALAY & PARLOUR) - same 58mm bitmap
+// item = { kind: 'report', date: 'DD/MM/YYYY', sales, orders, cod, credit, advance, t (ms) }
+// ---------------------------------------------------------------------------
+const REPORT_SHOP = 'MATESHWARI DUGDHALAY & PARLOUR';
+const REPORT_STAFF = [
+  ['Sale Executive :-', 'Navaghan Dabhi'],
+  ['Sales Officer :-', 'Aarti Marvadi'],
+  ['Collection Agent :-', 'Dhairya Dabhi'],
+  ['Service Provider :-', 'Shaurya Dabhi'],
+  ['Device owner :-', 'apnidukanse.in'],
+];
+
+const REPORT_CHARGES = ['Sell 250Rs :- 5 /-', 'Sell 500Rs :- 10 /-', 'Sell 1000Rs :- 20/-'];
+
+function paintReport(ctx, it) {
+  let y = 10;
+  ctx.fillStyle = '#000';
+  ctx.textBaseline = 'alphabetic';
+  const setFont = (s) => { ctx.font = `${s}px ${FAMILY}`; };
+  const money = (n) => '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN');
+  function put(text, x, yb, size, bold, align) {
+    setFont(size);
+    ctx.textAlign = align || 'left';
+    ctx.fillText(text, x, yb);
+    if (bold) ctx.fillText(text, x + 1, yb);
+  }
+  const lineH = (s) => Math.round(s * 1.5);
+  const base = (s) => y + Math.round(s * 1.12);
+  function wrapLines(text, size, maxW) {
+    setFont(size);
+    const out = [];
+    let cur = '';
+    for (const w of String(text).split(/\s+/).filter(Boolean)) {
+      const t = cur ? cur + ' ' + w : w;
+      if (ctx.measureText(t).width <= maxW || !cur) cur = t; else { out.push(cur); cur = w; }
+    }
+    if (cur) out.push(cur);
+    return out;
+  }
+  function center(text, size, bold) {
+    for (const l of wrapLines(text, size, CW)) { put(l, W / 2, base(size), size, bold, 'center'); y += lineH(size); }
+  }
+  function row(left, right, size, bold) {
+    put(left, PAD, base(size), size, bold, 'left');
+    put(right, W - PAD, base(size), size, bold, 'right');
+    y += lineH(size);
+  }
+  function dash() {
+    y += 5;
+    ctx.save();
+    ctx.setLineDash([6, 4]);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#000';
+    ctx.beginPath(); ctx.moveTo(PAD, y); ctx.lineTo(W - PAD, y); ctx.stroke();
+    ctx.restore();
+    y += 9;
+  }
+  function band(text) {   // black bar with white text
+    ctx.fillStyle = '#000';
+    ctx.fillRect(PAD, y, CW, 30);
+    ctx.fillStyle = '#fff';
+    put(text, W / 2, y + 23, 20, false, 'center');
+    ctx.fillStyle = '#000';
+    y += 36;
+  }
+
+  center(REPORT_SHOP, 26, true);
+  center('દૈનિક રિપોર્ટ', 20, false);
+  dash();
+  row('તારીખ: ' + (it.date || ''), '', 22, false);
+  row('સમય: 6 AM થી 11 PM', '', 18, false);
+  dash();
+  row('કુલ વેચાણ', money(it.sales), 28, true);
+  row('કુલ ઓર્ડર', String(it.orders || 0), 22, false);
+  band('પેમેન્ટ');
+  row('COD', money(it.cod), 22, false);
+  row('Credit', money(it.credit), 22, false);
+  row('Advance Payment', money(it.advance), 22, false);
+  band('સ્ટાફ');
+  const staffTop = y;
+  for (const [label, name] of REPORT_STAFF) {
+    put(label, PAD, base(18), 18, false, 'left'); y += lineH(18) - 4;
+    put(name, PAD, base(20), 20, true, 'left'); y += lineH(20) - 2;
+  }
+  const staffEnd = y;
+  // charges: written in the empty space on the right, beside the staff names
+  y = staffTop;
+  put('ચાર્જ', W - PAD, base(18), 18, true, 'right'); y += lineH(18);
+  for (const c of REPORT_CHARGES) { put(c, W - PAD, base(17), 17, false, 'right'); y += lineH(17) - 2; }
+  y = staffEnd;
+  dash();
+  const d = new Date(Number(it.t) || Date.now());
+  const when = d.toLocaleDateString('en-GB', { timeZone: 'Asia/Kolkata' }) + ' ' +
+    d.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true }).toUpperCase();
+  center('રિપોર્ટ બન્યો: ' + when, 17, false);
+  return y + 40;
+}
+
+export function renderReport(item) {
+  ensureFont();
+  const dummy = createCanvas(W, 4000);
+  const h = Math.min(4000, Math.ceil(paintReport(dummy.getContext('2d'), item)));
+  const canvas = createCanvas(W, h);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, W, h);
+  paintReport(ctx, item);
+  return canvas;
+}
+
+export const SAMPLE_REPORT = { kind: 'report', no: 0, t: Date.now(), date: '11/11/2026', sales: 6840, orders: 14, cod: 6840, credit: 0, advance: 0 };
