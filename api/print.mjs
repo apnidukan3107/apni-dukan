@@ -11,11 +11,9 @@
 //   preview with id=sample_job or id=sample_sel. They print in the same line as orders, oldest first.
 // Auth: header "x-print-key" (or ?key=).
 //   PRINT_KEY          -> main printer (Apni Dukan): prints EVERY order, plus job/seller/PO slips (unchanged behaviour)
-//   PRINT_KEY_LAXMAN   -> Laxman Mobile Shop printer: only orders that contain Laxman's items, bill shows only his items + his total
-//   PRINT_KEY_AARTI    -> Aarti's Selection printer: same for Aarti's items
 //   Each printer keeps its own "printed" list in its own Firestore doc, so one printer never hides an order from another.
 import { getDb } from './_lib/firebase.mjs';
-import { renderBill, renderSlip, toEscPos, SAMPLE_ORDER, SAMPLE_JOB, SAMPLE_SEL, SAMPLE_PO } from './_lib/bill.mjs';
+import { renderBill, renderSlip, renderReport, toEscPos, SAMPLE_ORDER, SAMPLE_JOB, SAMPLE_SEL, SAMPLE_PO, SAMPLE_REPORT } from './_lib/bill.mjs';
 import { FieldValue } from 'firebase-admin/firestore';
 import { buildStatus, STATUS_HTML } from './_lib/statuspage.mjs';
 
@@ -37,6 +35,40 @@ async function loadSellerNames(db) {
   } catch { return {}; }
 }
 
+// Mateshwari seller name (as typed in the admin panel / Firebase) - spelling tolerant
+const SELLER_RE_MATESHWARI = /mat[eh]*[es]*h?[wv]ari|માતેશ્વરી|માતૃ?શ્વરી/i;
+
+// ---------- daily report (slip is drawn in _lib/bill.mjs -> renderReport) ----------
+const IST_MS = 5.5 * 3600 * 1000;
+function istParts(ms) { const d = new Date(ms + IST_MS); return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, d: d.getUTCDate(), h: d.getUTCHours(), mi: d.getUTCMinutes() }; }
+const pad2 = (n) => String(n).padStart(2, '0');
+function istDateKey(ms) { const t = istParts(ms); return `${t.y}${pad2(t.m)}${pad2(t.d)}`; }
+
+// yesterday 06:00 IST .. yesterday 23:00 IST  (as UTC ms)
+function reportWindow(nowMs) {
+  const t = istParts(nowMs);
+  const todayStartIst = Date.UTC(t.y, t.m - 1, t.d) - IST_MS;   // today 00:00 IST in UTC ms
+  const yStart = todayStartIst - 24 * 3600 * 1000;
+  return { from: yStart + 6 * 3600 * 1000, to: yStart + 23 * 3600 * 1000, label: istParts(yStart + 12 * 3600 * 1000) };
+}
+
+async function buildMateshwariReport(db, orders, sellerIds, nowMs) {
+  const w = reportWindow(nowMs);
+  const cache = {};
+  let sales = 0, count = 0;
+  for (const o of orders) {
+    const t = new Date(o.createdAt).getTime();
+    if (!(t >= w.from && t < w.to)) continue;
+    let mine = 0;
+    for (const it of o.items || []) {
+      if (sellerIds.has(await itemSellerId(db, it, cache))) mine += (Number(it.price) || 0) * (Number(it.qty) || 1);
+    }
+    if (mine > 0) { sales += mine; count += 1; }
+  }
+  // orders on the site only have "cash on delivery" today, so Credit / Advance Payment are 0 until the site supports them
+  return { kind: 'report', no: 0, date: `${pad2(w.label.d)}/${pad2(w.label.m)}/${w.label.y}`, sales, orders: count, cod: sales, credit: 0, advance: 0 };
+}
+
 // seller ids whose name matches (e.g. /laxman/i) -> the sellers added in the admin panel
 async function loadSellerIdsByName(db, re) {
   const ids = new Set();
@@ -53,8 +85,6 @@ async function loadSellerIdsByName(db, re) {
 function identifyPrinter(key) {
   if (!key) return null;
   if (process.env.PRINT_KEY && key === process.env.PRINT_KEY) return { tag: 'main', doc: 'printState', match: null };
-  if (process.env.PRINT_KEY_LAXMAN && key === process.env.PRINT_KEY_LAXMAN) return { tag: 'laxman', doc: 'printState_laxman', match: /laxman/i };
-  if (process.env.PRINT_KEY_AARTI && key === process.env.PRINT_KEY_AARTI) return { tag: 'aarti', doc: 'printState_aarti', match: /aarti/i };
   return null;
 }
 
@@ -141,13 +171,46 @@ export default async function handler(req, res) {
         }
         if (skipIds.length) await stateRef.set({ printedIds: FieldValue.arrayUnion(...skipIds) }, { merge: true });
       }
-      // job application / seller registration slips waiting in the queue (main printer only)
-      const queue = printer.match ? {} : (st.queue || {});
+      // daily report: once a day, after 13:30 IST, the Mateshwari printer gets yesterday's report slip (no cron needed)
+      let queue = st.queue || {};
+      if (printer.tag === 'mateshwari') {
+        const nowIst = istParts(nowMs);
+        const today = istDateKey(nowMs);
+        if ((nowIst.h > 13 || (nowIst.h === 13 && nowIst.mi >= 30)) && st.lastReportDate !== today) {
+          const sellerIds2 = await loadSellerIdsByName(db, printer.match);
+          if (sellerIds2.size) {
+            const rep = await buildMateshwariReport(db, orders, sellerIds2, nowMs);
+            rep.t = nowMs;
+            const rid = 'rp_' + today;
+            await stateRef.set({ lastReportDate: today, ['queue']: { [rid]: rep } }, { merge: true });
+            queue = { ...queue, [rid]: rep };
+          }
+        }
+      } else if (printer.match) queue = {};
       Object.entries(queue).forEach(([qid, it]) => {
         if (!it || !(Number(it.t) > 0)) return;
         if (!pick || it.t < pick.t) pick = { id: qid, t: it.t, orderNumber: it.no || 0 };
       });
       return res.status(200).json(pick ? { id: pick.id, orderNumber: pick.orderNumber, ...extra } : { none: true, ...extra });
+    }
+
+    if ((action === 'job' || action === 'preview') && (/^rp_\d{8}$/.test(id) || id === 'sample_report')) {
+      let item;
+      if (id === 'sample_report') item = { ...SAMPLE_REPORT, t: Date.now() };
+      else {
+        const qs = await stateRef.get();
+        item = qs.exists ? (qs.data().queue || {})[id] : null;
+        if (!item) return res.status(404).json({ error: 'report not found (already printed?)' });
+      }
+      const rc = renderReport(item);
+      if (action === 'preview') {
+        res.setHeader('Content-Type', 'image/png');
+        return res.status(200).send(rc.toBuffer('image/png'));
+      }
+      const rb = toEscPos(rc);
+      res.setHeader('Content-Type', 'application/octet-stream');
+      res.setHeader('Content-Length', String(rb.length));
+      return res.status(200).send(rb);
     }
 
     if ((action === 'job' || action === 'preview') && (/^(ja|sr|po)_[A-Za-z0-9_-]+$/.test(id) || id === 'sample_job' || id === 'sample_sel' || id === 'sample_po')) {
@@ -211,7 +274,7 @@ export default async function handler(req, res) {
     if (action === 'done') {
       const ms = parseInt(String(req.query.ms || ''), 10);
       const patch = { lastPrintedAt: new Date().toISOString(), lastPrintedId: id, lastPrintMs: Number.isFinite(ms) ? ms : null };
-      if (/^(ja|sr|po)_[A-Za-z0-9_-]+$/.test(id)) {
+      if (/^(ja|sr|po|rp)_[A-Za-z0-9_-]+$/.test(id)) {
         // printed slip: take it out of the queue
         await stateRef.update({ ...patch, ['queue.' + id]: FieldValue.delete() });
         return res.status(200).json({ ok: true });
