@@ -82,9 +82,12 @@ async function loadSellerIdsByName(db, re) {
 }
 
 // which printer is calling? (decided by the key)
-function identifyPrinter(key) {
+function identifyPrinter(rawKey) {
+  const key = String(rawKey || '').trim();
+  const ev = (n) => String(process.env[n] || '').trim();   // spaces / new lines pasted into Vercel are ignored
   if (!key) return null;
-  if (process.env.PRINT_KEY && key === process.env.PRINT_KEY) return { tag: 'main', doc: 'printState', match: null };
+  if (ev('PRINT_KEY') && key === ev('PRINT_KEY')) return { tag: 'main', doc: 'printState', match: null };
+  if (ev('PRINT_KEY_MATESHWARI') && key === ev('PRINT_KEY_MATESHWARI')) return { tag: 'mateshwari', doc: 'printState_mateshwari', match: SELLER_RE_MATESHWARI };
   return null;
 }
 
@@ -113,7 +116,9 @@ export default async function handler(req, res) {
   const key = req.headers['x-print-key'] || req.query.key;
   const printer = identifyPrinter(key);
   if (!printer) {
-    return res.status(401).json({ error: 'unauthorized' });
+    // hint for set-up problems (lengths only, never the key itself)
+    const L = (n) => String(process.env[n] || '').trim().length;
+    return res.status(401).json({ error: 'unauthorized', hint: { gotKeyLength: String(key || '').trim().length, PRINT_KEY_MATESHWARI_setLength: L('PRINT_KEY_MATESHWARI'), PRINT_KEY_setLength: L('PRINT_KEY') } });
   }
   const action = String(req.query.action || 'next');
   const id = req.query.id ? String(req.query.id) : '';
