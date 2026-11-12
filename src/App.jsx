@@ -15,7 +15,8 @@ import { Analytics } from "@vercel/analytics/react";
 import { useWallet, PremiumLoginButton, WalletPayBox, AdminCustomers } from "./PremiumWallet";
 import SiteSystem from "./SiteSystem";
 import HisabSystem from "./HisabSystem";
-import { SalesGate, SalesDashboard, SalesSessionBar } from "./SalesDashboards";
+import { SalesGate, SalesDashboard, SalesSessionBar, TraderBar, TraderForm, BLOG_ROLE, StatusPill } from "./SalesDashboards";
+import { MarketList, MarketDetail, MARKETS, marketOfSeller, guessMarket } from "./MarketDirectory";
 
 const firebaseConfig = {
   apiKey: "AIzaSyC9oJrhtVRE91_fF8FHEWXbcBJnY-916Zc",
@@ -212,6 +213,70 @@ function visitsListen(onChange) {
     },
     (err) => console.error("visitsListen error", err)
   );
+}
+// ---- Trader / Retailer accounts: one doc per mobile number ("trader__<mobile>") inside the existing "store" collection. ----
+const TRADER_KEY_PREFIX = "trader__";
+async function hashPw(mobile, pw) {
+  try {
+    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("apnidukan:" + mobile + ":" + pw));
+    return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+  } catch {
+    return "plain:" + pw;
+  }
+}
+async function traderGet(mobile) {
+  const snap = await getDoc(doc(db, "store", TRADER_KEY_PREFIX + mobile));
+  return snap.exists() ? snap.data() : null;
+}
+async function traderSave(t) {
+  const { mobile, ...rest } = t;
+  await setDoc(doc(db, "store", TRADER_KEY_PREFIX + mobile), { ...rest, type: "trader" });
+}
+async function traderDelete(mobile) {
+  await deleteDoc(doc(db, "store", TRADER_KEY_PREFIX + mobile));
+}
+function tradersListen(onChange) {
+  return onSnapshot(
+    collection(db, "store"),
+    (snap) => {
+      const list = snap.docs
+        .filter((d) => d.id.startsWith(TRADER_KEY_PREFIX))
+        .map((d) => {
+          const { type, passHash, ...fields } = d.data();
+          return { mobile: d.id.slice(TRADER_KEY_PREFIX.length), ...fields };
+        })
+        .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      onChange(list);
+    },
+    (err) => console.error("tradersListen error", err)
+  );
+}
+// ---- Blog posts written by Blog Writers: "blogpost__<id>" docs in the "store" collection.
+// status: draft | review | published | fix  (admin approves in the admin panel) ----
+const BLOG_POST_PREFIX = "blogpost__";
+function blogPostsListen(onChange) {
+  return onSnapshot(
+    collection(db, "store"),
+    (snap) => {
+      const list = snap.docs
+        .filter((d) => d.id.startsWith(BLOG_POST_PREFIX))
+        .map((d) => {
+          const { type, ...fields } = d.data();
+          return { id: d.id.slice(BLOG_POST_PREFIX.length), ...fields };
+        })
+        .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+      onChange(list);
+    },
+    (err) => console.error("blogPostsListen error", err)
+  );
+}
+async function blogPostSave(post) {
+  const { id, ...rest } = post;
+  const clean = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined));
+  await setDoc(doc(db, "store", BLOG_POST_PREFIX + id), { ...clean, type: "blogpost" });
+}
+async function blogPostDelete(id) {
+  await deleteDoc(doc(db, "store", BLOG_POST_PREFIX + id));
 }
 async function visitSave(v) {
   const { id, ...rest } = v;
@@ -3216,7 +3281,7 @@ export default function ApniDukanApp() {
   function approveSellerRegistration(id) {
     const req = pendingSellers.find((p) => p.id === id);
     if (!req) return;
-    saveSellers([...sellers, { id: uid("sel"), name: req.shop, mobile: req.mobile, pin: req.pin }]);
+    saveSellers([...sellers, { id: uid("sel"), name: req.shop, mobile: req.mobile, pin: req.pin, market: guessMarket(req.area) }]);
     savePendingSellers(pendingSellers.filter((p) => p.id !== id));
   }
 
@@ -3967,8 +4032,102 @@ export default function ApniDukanApp() {
     const unsubscribe = visitsListen(setSalesVisits);
     return () => unsubscribe();
   }, [salesAuth]);
+  // ---- Trader / Retailer login: all product rates shown 5% less while logged in ----
+  const TRADER_DISCOUNT_PCT = 5;
+  const [traderAuth, setTraderAuth] = useState(() => {
+    try {
+      const raw = localStorage.getItem("apniDukanTrader");
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [traders, setTraders] = useState([]);
+  useEffect(() => {
+    if (!isAdmin) return undefined;
+    const unsubscribe = tradersListen(setTraders);
+    return () => unsubscribe();
+  }, [isAdmin]);
+  // ---- Blog posts (Blog Writer dashboard + admin review) ----
+  const [blogPosts, setBlogPosts] = useState([]);
+  const needBlogPosts = isAdmin || (salesAuth && salesAuth.role === BLOG_ROLE);
+  useEffect(() => {
+    if (!needBlogPosts) return undefined;
+    const unsubscribe = blogPostsListen(setBlogPosts);
+    return () => unsubscribe();
+  }, [needBlogPosts]);
+  async function blogWriterSave(data) {
+    if (!salesAuth) return;
+    const now = Date.now();
+    const old = blogPosts.find((p) => p.id === data.id && p.by === salesAuth.id);
+    await blogPostSave({
+      id: old ? old.id : `${now}_${Math.random().toString(36).slice(2, 8)}`,
+      by: salesAuth.id, byName: salesAuth.name,
+      title: data.title, category: data.category, body: data.body,
+      status: data.status,
+      note: data.status === "review" ? "" : (old && old.note) || "",
+      createdAt: old ? old.createdAt : now, updatedAt: now,
+      ...(old && old.publishedAt ? { publishedAt: old.publishedAt } : {}),
+    });
+  }
+  async function adminBlogSet(post, status, note) {
+    await blogPostSave({
+      ...post, status, note: note || "", updatedAt: Date.now(),
+      ...(status === "published" ? { publishedAt: Date.now() } : {}),
+    });
+  }
+  // ---- Market directory (front page "Market" button) ----
+  const [marketSel, setMarketSel] = useState(null);       // selected market name
+  const [sellerFilter, setSellerFilter] = useState(null);  // {id, name} -> home shows only that seller's products
+  function openSellerProducts(s) {
+    setSellerFilter({ id: s.id, name: s.name });
+    setCategory("બધું");
+    setSubcategory("બધું");
+    setQuery("");
+    setView("home");
+  }
+  // Storefront price list. Admin and all stored data keep using the real "products"; only the shop display/cart use this.
+  const shopProducts = useMemo(() => {
+    if (!traderAuth || isAdmin) return products;
+    return products.map((p) => ({ ...p, price: Math.round(Number(p.price || 0) * (100 - TRADER_DISCOUNT_PCT)) / 100 }));
+  }, [products, traderAuth, isAdmin]);
+  function traderLogoutQuiet() {
+    try { localStorage.removeItem("apniDukanTrader"); } catch {}
+    setTraderAuth(null);
+  }
+  function loginTrader(t) {
+    const u = { mobile: t.mobile, kind: t.kind, firm: t.firm, tabs: t.tabs || [] };
+    try { localStorage.setItem("apniDukanTrader", JSON.stringify(u)); } catch {}
+    setTraderAuth(u);
+    setView("home");
+  }
+  async function gateTraderSignup(d) {
+    try {
+      if (await traderGet(d.mobile)) return { ok: false, error: "આ મોબાઇલ નંબરથી એકાઉન્ટ પહેલેથી છે. Login કરો." };
+      const passHash = await hashPw(d.mobile, d.password);
+      await traderSave({ mobile: d.mobile, kind: d.kind, firm: d.firm, tabs: d.tabs, gstin: d.gstin, address: d.address, passHash, createdAt: Date.now() });
+      loginTrader(d);
+      return { ok: true };
+    } catch (e) {
+      console.error("trader signup failed", e);
+      return { ok: false, error: "Signup થયું નહીં, ફરી પ્રયત્ન કરો." };
+    }
+  }
+  async function gateTraderLogin(mobile, password) {
+    try {
+      const t = await traderGet(mobile);
+      const h = await hashPw(mobile, password);
+      if (!t || t.passHash !== h) return { ok: false, error: "મોબાઇલ નંબર અથવા પાસવર્ડ ખોટો છે." };
+      loginTrader({ mobile, kind: t.kind, firm: t.firm, tabs: t.tabs });
+      return { ok: true };
+    } catch (e) {
+      console.error("trader login failed", e);
+      return { ok: false, error: "Login થયું નહીં, ફરી પ્રયત્ન કરો." };
+    }
+  }
   function gateAdminLogin(pin) {
     if (pin === ADMIN_PIN) {
+      traderLogoutQuiet();
       setIsAdmin(true);
       setView("admin");
       return true;
@@ -4068,7 +4227,7 @@ export default function ApniDukanApp() {
   }, [customCategories, products]);
 
   const filtered = useMemo(() => {
-    return products.filter((p) => {
+    return shopProducts.filter((p) => {
       const matchCat = category === "બધું" || p.category === category;
       const matchSubcat =
         subcatsFor(category, subcatCustom).length === 0 ||
@@ -4076,21 +4235,22 @@ export default function ApniDukanApp() {
         p.subcategory === subcategory ||
         (subcategory === "અન્ય" && !p.subcategory);
       const matchQuery = (p.name || "").toLowerCase().includes(query.toLowerCase());
-      return matchCat && matchSubcat && matchQuery;
+      const matchSeller = !sellerFilter || (p.sellerId || inferSellerId(p)) === sellerFilter.id;
+      return matchCat && matchSubcat && matchQuery && matchSeller;
     });
-  }, [products, query, category, subcategory, subcatCustom]);
+  }, [shopProducts, query, category, subcategory, subcatCustom, sellerFilter]);
 
   const cartItems = useMemo(() => {
     return Object.entries(cart)
       .map(([key, qty]) => {
         const [id, sizePart] = key.split("__SIZE__");
-        const p = products.find((x) => x.id === id);
+        const p = shopProducts.find((x) => x.id === id);
         if (!p) return null;
         const size = sizePart ? decodeURIComponent(sizePart) : null;
         return { ...p, id: key, baseId: id, qty, size };
       })
       .filter(Boolean);
-  }, [cart, products]);
+  }, [cart, shopProducts]);
 
   const cartCount = Object.values(cart).reduce((a, b) => a + b, 0);
   const cartTotal = cartItems.reduce((s, i) => s + i.price * i.qty, 0);
@@ -4645,6 +4805,7 @@ export default function ApniDukanApp() {
 
   function tryAdminLogin() {
     if (pinInput === ADMIN_PIN) {
+      traderLogoutQuiet();
       setIsAdmin(true);
       setPinError("");
       setView("admin");
@@ -4812,6 +4973,8 @@ export default function ApniDukanApp() {
             {view === "sellerOrders" && <div style={styles.brand}>સેલર ઓર્ડર્સ</div>}
             {view === "careers" && <div style={styles.brand}>કરિયર</div>}
             {view === "gate" && <div style={styles.brand}>લોગિન</div>}
+            {view === "trader" && <div style={styles.brand}>Trader / Retailer</div>}
+            {view === "market" && <div style={styles.brand}>માર્કેટ</div>}
             {view === "salesDash" && <div style={styles.brand}>{salesAuth ? salesAuth.role : "ડેશબોર્ડ"}</div>}
           </div>
           {view === "home" && (
@@ -4928,6 +5091,11 @@ export default function ApniDukanApp() {
           <SalesSessionBar user={salesAuth} remaining={salesRemaining} onOpen={() => setView("salesDash")} />
         )}
 
+        {/* TRADER / RETAILER STRIP: firm name + 5% less rates */}
+        {traderAuth && !isAdmin && !["gate", "admin", "adminLogin"].includes(view) && (
+          <TraderBar trader={traderAuth} pct={TRADER_DISCOUNT_PCT} onLogout={traderLogoutQuiet} />
+        )}
+
         {/* HOME */}
         {view === "home" && (
           <div style={styles.scrollArea} className="scroll-area view-home">
@@ -4942,6 +5110,32 @@ export default function ApniDukanApp() {
             />
             <ApkDownloadBanner />
             <AdStrip />
+            <div style={{ display: "flex", gap: 8, padding: "4px 16px 8px" }}>
+              {!traderAuth && (
+                <button
+                  onClick={() => setView("trader")}
+                  style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: "#1F5C40", color: "#fff", border: "none", borderRadius: 12, padding: "11px 8px", fontWeight: 800, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}
+                >
+                  <Store size={16} color="#FFD21F" /> Trader / Retailer
+                </button>
+              )}
+              <button
+                onClick={() => { setMarketSel(null); setView("market"); }}
+                style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: "#B5541C", color: "#fff", border: "none", borderRadius: 12, padding: "11px 8px", fontWeight: 800, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}
+              >
+                📍 Market
+              </button>
+            </div>
+            {sellerFilter && (
+              <div style={{ padding: "0 16px 8px" }}>
+                <button
+                  onClick={() => setSellerFilter(null)}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#0B1F5C", color: "#fff", border: "none", borderRadius: 20, padding: "7px 12px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}
+                >
+                  🏪 {sellerFilter.name} ✕
+                </button>
+              </div>
+            )}
             <div style={styles.searchWrap}>
               <Search size={16} color="#8a8378" style={{ flexShrink: 0 }} />
               <input
@@ -5678,7 +5872,7 @@ export default function ApniDukanApp() {
               </div>
             ) : (
               <div style={styles.grid} className="product-grid">
-                {products.filter((p) => wishlist.includes(p.id)).map((p) => (
+                {shopProducts.filter((p) => wishlist.includes(p.id)).map((p) => (
                   <div key={p.id} style={styles.card}>
                     <div
                       className="card-img" style={{ ...styles.cardImgWrap, cursor: resolveProductImage(p) ? "zoom-in" : "default" }}
@@ -5839,6 +6033,25 @@ export default function ApniDukanApp() {
           <SalesGate applications={applications} onAdminLogin={gateAdminLogin} onSuccess={gateSalesSuccess} />
         )}
 
+        {/* TRADER / RETAILER SIGNUP + LOGIN (front page button) */}
+        {view === "trader" && (
+          <TraderForm
+            kind="Trader / Retailer"
+            tabs={Array.from(new Set([...categories.filter((c) => c !== "બધું"), "Groceries"]))}
+            discountPct={TRADER_DISCOUNT_PCT}
+            onSignup={gateTraderSignup}
+            onLogin={gateTraderLogin}
+            onBack={() => setView("home")}
+          />
+        )}
+
+        {/* MARKET DIRECTORY (front page button) */}
+        {view === "market" && (marketSel ? (
+          <MarketDetail marketName={marketSel} sellers={sellers} onBack={() => setMarketSel(null)} onOpenSeller={openSellerProducts} />
+        ) : (
+          <MarketList sellers={sellers} onSelect={setMarketSel} />
+        ))}
+
         {/* SALES OFFICER / SALES EXECUTIVE DASHBOARD */}
         {view === "salesDash" && salesAuth && (
           <div style={styles.scrollArea} className="scroll-area">
@@ -5849,6 +6062,8 @@ export default function ApniDukanApp() {
               onAddVisit={salesAddVisit}
               onLogout={salesLogout}
               remaining={salesRemaining}
+              posts={blogPosts}
+              onSaveBlog={blogWriterSave}
             />
           </div>
         )}
@@ -6629,6 +6844,14 @@ export default function ApniDukanApp() {
                       <div>
                         <div style={{ fontWeight: 800, fontSize: 13 }}>સેલર #{si + 1} · {s.name}</div>
                         <div style={{ fontSize: 11, color: "#8a8378" }}>મોબાઇલ: {s.mobile || "—"} · PIN: {s.pin}</div>
+                        <select
+                          value={marketOfSeller(s)}
+                          onChange={(e) => saveSellers(sellers.map((x) => (x.id === s.id ? { ...x, market: e.target.value } : x)))}
+                          style={{ ...styles.textInput, width: "auto", padding: "5px 8px", fontSize: 12, marginTop: 4 }}
+                        >
+                          <option value="">📍 Market નક્કી નથી</option>
+                          {MARKETS.map((m) => <option key={m.name} value={m.name}>📍 {m.name}</option>)}
+                        </select>
                         {(() => {
                           const h = sellerHisab(s.id);
                           const pi = payInputs[s.id] || { amount: "", note: "" };
@@ -6799,6 +7022,61 @@ export default function ApniDukanApp() {
                           <button key={st} onClick={() => applicationSave({ ...a, status: st })} style={{ ...styles.statusBtn, ...styles.statusBtnActive }}>{st}</button>
                         ))}
                         <button onClick={() => { if (window.confirm("આ એન્ટ્રી ડિલીટ કરવી છે?")) applicationDelete(a.id); }} style={{ ...styles.statusBtn, color: "#b23b3b", borderColor: "#e3b8b8" }}><Trash2 size={13} /></button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </details>
+
+              <details style={{ marginBottom: 16 }}>
+                <summary style={{ fontWeight: 800, fontSize: 14, cursor: "pointer" }}>📝 Blog Posts ({blogPosts.filter((b) => b.status === "review").length} review માં)</summary>
+                <div style={{ marginTop: 10 }}>
+                  {blogPosts.length === 0 && <p style={{ color: "#a49c88", fontSize: 13 }}>હજુ કોઈ બ્લોગ નથી.</p>}
+                  {[...blogPosts].sort((a, b) => (a.status === "review" ? -1 : 0) - (b.status === "review" ? -1 : 0)).map((b) => (
+                    <div key={b.id} style={{ ...styles.orderCard, marginBottom: 10 }}>
+                      <div style={styles.orderTopRow}>
+                        <span style={{ fontWeight: 700, fontSize: 12 }}>{b.byName} · {b.category}</span>
+                        <StatusPill status={b.status} />
+                      </div>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: T.ink, marginTop: 8 }}>{b.title}</div>
+                      <details style={{ marginTop: 6 }}>
+                        <summary style={{ fontSize: 12.5, color: T.orange, cursor: "pointer" }}>બ્લોગ વાંચો</summary>
+                        <div style={{ whiteSpace: "pre-wrap", fontSize: 13, color: T.inkSoft, marginTop: 6, lineHeight: 1.6 }}>{b.body}</div>
+                      </details>
+                      {b.note ? <div style={{ fontSize: 12, color: "#b23b3b", marginTop: 6 }}>નોંધ: {b.note}</div> : null}
+                      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                        {b.status !== "published" && (
+                          <button onClick={() => adminBlogSet(b, "published", "")} style={{ ...styles.statusBtn, color: "#1F5C40", borderColor: "#b7dcc4" }}>✅ Publish</button>
+                        )}
+                        <button
+                          onClick={() => { const n = window.prompt("લેખકને શું સુધારવું છે? (નોંધ)"); if (n !== null) adminBlogSet(b, "fix", n.trim()); }}
+                          style={styles.statusBtn}
+                        >✏️ સુધારો</button>
+                        <button onClick={() => { if (window.confirm("આ બ્લોગ ડિલીટ કરવો છે?")) blogPostDelete(b.id); }} style={{ ...styles.statusBtn, color: "#b23b3b", borderColor: "#e3b8b8" }}><Trash2 size={13} /></button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </details>
+
+              <details style={{ marginBottom: 16 }}>
+                <summary style={{ fontWeight: 800, fontSize: 14, cursor: "pointer" }}>🏪 Trader / Retailer ({traders.length})</summary>
+                <div style={{ marginTop: 10 }}>
+                  {traders.length === 0 && <p style={{ color: "#a49c88", fontSize: 13 }}>હજુ કોઈ Signup નથી.</p>}
+                  {traders.map((t) => (
+                    <div key={t.mobile} style={{ ...styles.orderCard, marginBottom: 10 }}>
+                      <div style={styles.orderTopRow}>
+                        <span style={{ fontWeight: 700, fontSize: 12 }}>{new Date(t.createdAt).toLocaleString("gu-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
+                        <span style={styles.orderStatusTag}>{t.kind}</span>
+                      </div>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: T.ink, marginTop: 8 }}>{t.firm}</div>
+                      <div style={{ fontSize: 12.5, color: T.inkSoft, marginTop: 4 }}>GSTIN: {t.gstin}</div>
+                      <div style={{ fontSize: 12.5, color: T.inkSoft, marginTop: 2 }}>📍 {t.address}</div>
+                      <div style={{ fontSize: 12.5, color: T.inkSoft, marginTop: 2 }}>🏷️ {(t.tabs || []).join(", ")}</div>
+                      <a href={`https://wa.me/91${t.mobile}`} target="_blank" rel="noreferrer" style={{ display: "inline-block", marginTop: 6, color: T.green, fontWeight: 700, fontSize: 13, textDecoration: "none" }}>💬 WhatsApp: {t.mobile}</a>
+                      <a href={`tel:${t.mobile}`} style={{ marginLeft: 12, color: T.orange, fontWeight: 700, fontSize: 13, textDecoration: "none" }}>📞 કૉલ</a>
+                      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                        <button onClick={() => { if (window.confirm("આ એકાઉન્ટ ડિલીટ કરવું છે?")) traderDelete(t.mobile); }} style={{ ...styles.statusBtn, color: "#b23b3b", borderColor: "#e3b8b8" }}><Trash2 size={13} /></button>
                       </div>
                     </div>
                   ))}

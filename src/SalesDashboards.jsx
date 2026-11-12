@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import {
   Store, ClipboardList, Package, TrendingUp, Plus, LogOut, Lock,
-  User, Users, Loader2, ShieldCheck, ArrowLeft, Send, X, UserCheck, Clock,
+  User, Users, Loader2, ShieldCheck, ArrowLeft, Send, X, UserCheck, Clock, Check, Store as StoreIcon, Pencil,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -9,9 +9,12 @@ import {
 // ---------------------------------------------------------------------------
 export const SO_ROLE = "Sales Officer";
 export const SE_ROLE = "Sales Executive";
+export const BLOG_ROLE = "Blog Writer";
 const SO_PASSWORD = "112137";
-const SE_PASSWORD = "112137";          // Executive nu password ahi badli shako
+const SE_PASSWORD = "112137";
+const BLOG_PASSWORD = "112137";         // Blog Writer nu password          // Executive nu password ahi badli shako
 const SELECTED_STATUS = "પસંદ થયા";     // admin panel ma aa status vala j login kari shake
+const SHOW_DEMO = true;                 // false karo to gate ma "Demo જુઓ" chhupai jase
 const DAILY_VISIT_TARGET = 12;          // ek executive nu roj nu visit target
 const OWNER_WHATSAPP = "919898154548";  // daily report aa number par jashe
 
@@ -72,6 +75,143 @@ export function SalesSessionBar({ user, remaining, onOpen }) {
   );
 }
 
+// Strip shown on the storefront while a Trader / Retailer is logged in.
+export function TraderBar({ trader, pct, onLogout }) {
+  return (
+    <div style={{ flexShrink: 0, background: "#1F5C40", color: "#fff", padding: "8px 12px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+        <StoreIcon size={18} color={YELLOW} style={{ flex: "none" }} />
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{trader.firm}</div>
+          <div style={{ fontSize: 11, color: "#cfe6d8" }}>{trader.kind} · બધા ભાવ પર {pct}% ઓછા</div>
+        </div>
+      </div>
+      <button onClick={onLogout} style={{ background: "rgba(255,255,255,0.16)", color: "#fff", border: "none", borderRadius: 8, padding: "6px 10px", fontSize: 12, cursor: "pointer", fontFamily: "inherit", flex: "none" }}>Logout</button>
+    </div>
+  );
+}
+
+const GST_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
+
+function Field({ label, children }) {
+  return (
+    <label style={{ display: "block", textAlign: "left", marginBottom: 10 }}>
+      <span style={{ display: "block", fontSize: 12, color: "#6b6555", marginBottom: 4 }}>{label}</span>
+      {children}
+    </label>
+  );
+}
+
+// Trader / Retailer: Signup (firm, mobile, business tabs, GSTIN, address, password) or Login (mobile + password)
+export function TraderForm({ kind, tabs, discountPct, onSignup, onLogin, onBack }) {
+  const [mode, setMode] = useState("signup");
+  const [firm, setFirm] = useState("");
+  const [mobile, setMobile] = useState("");
+  const [picked, setPicked] = useState([]);
+  const [gstin, setGstin] = useState("");
+  const [address, setAddress] = useState("");
+  const [pw, setPw] = useState("");
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const toggleTab = (t) => setPicked((p) => (p.includes(t) ? p.filter((x) => x !== t) : [...p, t]));
+  const switchMode = (m) => { setMode(m); setErr(""); };
+
+  const submit = async (e) => {
+    e.preventDefault();
+    const m = mobile.trim();
+    if (!/^[6-9]\d{9}$/.test(m)) return setErr("સાચો 10 અંકનો મોબાઇલ નંબર લખો.");
+    if (mode === "signup") {
+      if (firm.trim().length < 2) return setErr("ફર્મનું નામ લખો.");
+      if (picked.length === 0) return setErr("ઓછામાં ઓછો એક Business tab પસંદ કરો.");
+      if (!GST_RE.test(gstin.trim().toUpperCase())) return setErr("સાચો 15 અક્ષરનો GSTIN લખો (દા.ત. 24ABCDE1234F1Z5).");
+      if (address.trim().length < 8) return setErr("પૂરું સરનામું લખો.");
+      if (pw.length < 6) return setErr("પાસવર્ડ ઓછામાં ઓછો 6 અક્ષરનો રાખો.");
+    } else if (pw.length < 1) {
+      return setErr("પાસવર્ડ લખો.");
+    }
+    setErr(""); setBusy(true);
+    try {
+      const r = mode === "signup"
+        ? await onSignup({ kind, firm: firm.trim(), mobile: m, tabs: picked, gstin: gstin.trim().toUpperCase(), address: address.trim(), password: pw })
+        : await onLogin(m, pw);
+      if (r && !r.ok) setErr(r.error || "કંઈક ખોટું થયું, ફરી પ્રયત્ન કરો.");
+    } catch (e2) {
+      console.error(e2);
+      setErr("કંઈક ખોટું થયું, ફરી પ્રયત્ન કરો.");
+    }
+    setBusy(false);
+  };
+
+  const seg = (m, label) => (
+    <button type="button" onClick={() => switchMode(m)} style={{
+      flex: 1, border: "none", padding: "9px 0", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+      background: mode === m ? NAVY : "transparent", color: mode === m ? "#fff" : NAVY, borderRadius: 9,
+    }}>{label}</button>
+  );
+
+  return (
+    <form onSubmit={submit} style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "16px 20px 24px" }}>
+      <div style={{ textAlign: "center", marginBottom: 12 }}>
+        <StoreIcon size={30} color={NAVY} />
+        <p style={{ fontWeight: 800, fontSize: 17, color: "#1a1d26", margin: "6px 0 2px" }}>{kind}</p>
+        <p style={{ fontSize: 12, color: "#1F5C40", margin: 0, fontWeight: 700 }}>Login પછી બધા product પર {discountPct}% ઓછો ભાવ</p>
+      </div>
+      <div style={{ display: "flex", gap: 4, background: "#e8ebf3", padding: 3, borderRadius: 12, marginBottom: 14 }}>
+        {seg("signup", "Signup")}{seg("login", "Login")}
+      </div>
+
+      {mode === "signup" && (
+        <Field label="ફર્મનું નામ">
+          <input style={inputStyle} value={firm} onChange={(e) => setFirm(e.target.value)} placeholder="Firm / દુકાનનું નામ" />
+        </Field>
+      )}
+      <Field label="મોબાઇલ નંબર">
+        <input style={inputStyle} type="tel" inputMode="numeric" maxLength={10} value={mobile} onChange={(e) => setMobile(e.target.value.replace(/\D/g, ""))} placeholder="10 અંકનો નંબર" />
+      </Field>
+
+      {mode === "signup" && (
+        <>
+          <div style={{ textAlign: "left", marginBottom: 10 }}>
+            <span style={{ display: "block", fontSize: 12, color: "#6b6555", marginBottom: 4 }}>Business (સ્ક્રોલ કરીને એક કે વધુ પસંદ કરો)</span>
+            <div style={{ display: "flex", gap: 8, overflowX: "auto", padding: "2px 0 8px", WebkitOverflowScrolling: "touch" }}>
+              {tabs.map((t) => {
+                const on = picked.includes(t);
+                return (
+                  <button key={t} type="button" onClick={() => toggleTab(t)} style={{
+                    flex: "none", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 5,
+                    border: `1px solid ${on ? NAVY : "#d9dce3"}`, background: on ? NAVY : "#fff", color: on ? "#fff" : "#1a1d26",
+                    borderRadius: 20, padding: "8px 14px", fontSize: 13, cursor: "pointer", fontFamily: "inherit",
+                  }}>{on && <Check size={13} color={YELLOW} />}{t}</button>
+                );
+              })}
+            </div>
+          </div>
+          <Field label="GSTIN">
+            <input style={{ ...inputStyle, textTransform: "uppercase" }} maxLength={15} value={gstin} onChange={(e) => setGstin(e.target.value)} placeholder="24ABCDE1234F1Z5" />
+          </Field>
+          <Field label="સરનામું">
+            <textarea style={{ ...inputStyle, minHeight: 64, resize: "vertical" }} value={address} onChange={(e) => setAddress(e.target.value)} placeholder="દુકાન / ફર્મનું પૂરું સરનામું" />
+          </Field>
+        </>
+      )}
+
+      <Field label="પાસવર્ડ">
+        <input style={inputStyle} type="password" value={pw} onChange={(e) => setPw(e.target.value)} placeholder={mode === "signup" ? "ઓછામાં ઓછા 6 અક્ષર" : "પાસવર્ડ"} />
+      </Field>
+
+      {err && <div style={{ color: "#b23b3b", fontSize: 12, marginBottom: 8 }}>{err}</div>}
+      <button type="submit" disabled={busy} style={{
+        width: "100%", background: NAVY, color: "#fff", border: "none", borderRadius: 12, padding: "13px 0",
+        fontWeight: 800, fontSize: 14, cursor: "pointer", fontFamily: "inherit", opacity: busy ? 0.6 : 1,
+      }}>{busy ? "..." : mode === "signup" ? "Signup કરો" : "Login"}</button>
+      <button type="button" onClick={onBack} style={{ display: "flex", alignItems: "center", gap: 4, border: "none", background: "transparent", color: "#6b6555", margin: "14px auto 0", cursor: "pointer", fontFamily: "inherit", fontSize: 13 }}>
+        <ArrowLeft size={14} /> પાછા
+      </button>
+    </form>
+  );
+}
+
 const inputStyle = {
   width: "100%", boxSizing: "border-box", border: "1px solid #d9dce3", background: "#fff",
   borderRadius: 10, padding: "12px 12px", fontSize: 14, color: "#1a1d26", outline: "none", fontFamily: "inherit",
@@ -81,7 +221,7 @@ const inputStyle = {
 // GATE: Loading -> Who are you? -> Admin / Sales Officer / Sales Executive
 // ---------------------------------------------------------------------------
 export function SalesGate({ applications, onAdminLogin, onSuccess }) {
-  const [step, setStep] = useState("loading"); // loading | who | admin | name | pass
+  const [step, setStep] = useState("loading"); // loading | who | admin | name | pass | demo | demoDash
   const [role, setRole] = useState("");
   const [name, setName] = useState("");
   const [pw, setPw] = useState("");
@@ -105,9 +245,10 @@ export function SalesGate({ applications, onAdminLogin, onSuccess }) {
   };
   const submitPass = (e) => {
     e.preventDefault();
-    const need = role === SO_ROLE ? SO_PASSWORD : SE_PASSWORD;
+    const need = role === SO_ROLE ? SO_PASSWORD : role === BLOG_ROLE ? BLOG_PASSWORD : SE_PASSWORD;
+    // Blog writer applications are the ones saved without a "job" (Careers > Blog Writers)
     const match = applications.find(
-      (a) => a.job === role && a.status === SELECTED_STATUS && norm(a.name) === norm(name)
+      (a) => (role === BLOG_ROLE ? !a.job : a.job === role) && a.status === SELECTED_STATUS && norm(a.name) === norm(name)
     );
     if (pw === need && match) onSuccess({ role, name: match.name, id: match.id });
     else setErr("નામ અથવા પાસવર્ડ ખોટો છે. નામ અરજીમાં લખ્યા મુજબ જ લખો.");
@@ -151,8 +292,33 @@ export function SalesGate({ applications, onAdminLogin, onSuccess }) {
         <button style={bigBtn(NAVY, "#fff")} onClick={() => { setRole(SE_ROLE); setErr(""); setPw(""); setStep("name"); }}>
           <User size={20} color={YELLOW} /> Sales Executive
         </button>
+        <button style={bigBtn("#7B4FD8", "#fff")} onClick={() => { setRole(BLOG_ROLE); setErr(""); setPw(""); setStep("name"); }}>
+          <Pencil size={20} color={YELLOW} /> Blog Writer
+        </button>
+        {SHOW_DEMO && (
+          <button type="button" onClick={() => setStep("demo")} style={{ border: "none", background: "transparent", color: "#6b6555", marginTop: 16, cursor: "pointer", fontFamily: "inherit", fontSize: 13, textDecoration: "underline" }}>
+            👁 Demo જુઓ (સેમ્પલ ડેટા)
+          </button>
+        )}
       </div>
     );
+  }
+
+  if (step === "demo") {
+    return (
+      <div style={wrap}>
+        <p style={{ fontSize: 18, fontWeight: 800, color: "#1a1d26", margin: "0 0 2px" }}>Demo જુઓ</p>
+        <p style={{ fontSize: 12, color: "#6b6555", margin: "0 0 10px" }}>લોગિન વગર, સેમ્પલ ડેટા સાથે</p>
+        <button style={bigBtn(DARK, "#fff")} onClick={() => { setRole(SO_ROLE); setStep("demoDash"); }}><Users size={20} color={YELLOW} /> Sales Officer</button>
+        <button style={bigBtn(NAVY, "#fff")} onClick={() => { setRole(SE_ROLE); setStep("demoDash"); }}><User size={20} color={YELLOW} /> Sales Executive</button>
+        <button style={bigBtn("#7B4FD8", "#fff")} onClick={() => { setRole(BLOG_ROLE); setStep("demoDash"); }}><Pencil size={20} color={YELLOW} /> Blog Writer</button>
+        {backBtn}
+      </div>
+    );
+  }
+
+  if (step === "demoDash") {
+    return <DemoDashboard role={role} onExit={() => setStep("demo")} />;
   }
 
   if (step === "admin") {
@@ -453,8 +619,196 @@ function OfficerDashboard({ user, visits, applications, onLogout, remaining }) {
 }
 
 // ---------------------------------------------------------------------------
-export function SalesDashboard({ user, visits, applications, onAddVisit, onLogout, remaining }) {
+// BLOG WRITER dashboard: write blog -> "Review માટે મોકલો" -> admin approves (Published) or asks to fix
+// ---------------------------------------------------------------------------
+export const BLOG_STATUS = {
+  draft: ["Draft", "#E6E8EE", "#555"],
+  review: ["Review માં", "#FDE7D2", "#B5541C"],
+  published: ["Published", "#D9EFE1", "#1F5C40"],
+  fix: ["સુધારો", "#F8DADA", "#B23B3B"],
+};
+const BLOG_CATS = ["V Belt", "Pneumatics", "Handtools", "Safety", "Groceries", "Other"];
+const PURPLE = "#4B2A99";
+
+export function StatusPill({ status }) {
+  const m = BLOG_STATUS[status] || BLOG_STATUS.draft;
+  return <span style={{ background: m[1], color: m[2], fontSize: 11, padding: "2px 8px", borderRadius: 10, whiteSpace: "nowrap" }}>{m[0]}</span>;
+}
+
+function BlogEditor({ initial, onSave, onCancel }) {
+  const [title, setTitle] = useState(initial.title || "");
+  const [category, setCategory] = useState(initial.category || BLOG_CATS[0]);
+  const [body, setBody] = useState(initial.body || "");
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const go = async (status) => {
+    if (title.trim().length < 5) return setErr("હેડિંગ લખો (ઓછામાં ઓછા 5 અક્ષર).");
+    if (status === "review" && body.trim().length < 50) return setErr("Review માટે બ્લોગ ઓછામાં ઓછો 50 અક્ષરનો હોવો જોઈએ.");
+    setErr(""); setBusy(true);
+    try {
+      await onSave({ id: initial.id, title: title.trim(), category, body: body.trim(), status });
+      onCancel();
+    } catch (e) {
+      console.error(e);
+      setErr("સેવ થયું નહીં, ફરી પ્રયત્ન કરો.");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ padding: 12 }}>
+      <button onClick={onCancel} style={{ display: "flex", alignItems: "center", gap: 6, border: "none", background: "transparent", cursor: "pointer", fontFamily: "inherit", fontSize: 13, color: "#5b6483", padding: 0, marginBottom: 10 }}>
+        <ArrowLeft size={15} /> પાછા
+      </button>
+      <input style={inputStyle} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="બ્લોગનું હેડિંગ" />
+      <div style={{ display: "flex", gap: 6, overflowX: "auto", margin: "10px 0", paddingBottom: 4 }}>
+        {BLOG_CATS.map((c) => (
+          <button key={c} onClick={() => setCategory(c)} style={{
+            flex: "none", whiteSpace: "nowrap", border: `1px solid ${category === c ? PURPLE : "#d9dce3"}`,
+            background: category === c ? PURPLE : "#fff", color: category === c ? "#fff" : "#1a1d26",
+            borderRadius: 16, padding: "6px 12px", fontSize: 12, cursor: "pointer", fontFamily: "inherit",
+          }}>{c}</button>
+        ))}
+      </div>
+      <textarea style={{ ...inputStyle, minHeight: 190, resize: "vertical", lineHeight: 1.55 }} value={body}
+        onChange={(e) => setBody(e.target.value)} placeholder="બ્લોગ અહીં લખો..." />
+      {initial.note && initial.status === "fix" && (
+        <div style={{ background: "#F8DADA", color: "#B23B3B", borderRadius: 10, padding: 10, fontSize: 12.5, marginTop: 10 }}>એડમિનની નોંધ: {initial.note}</div>
+      )}
+      {err && <div style={{ color: "#b23b3b", fontSize: 12, marginTop: 8 }}>{err}</div>}
+      <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+        <button disabled={busy} onClick={() => go("draft")} style={{ flex: 1, background: "#E6E8EE", color: NAVY, border: "none", borderRadius: 10, padding: "12px 0", fontWeight: 800, fontSize: 13, cursor: "pointer", fontFamily: "inherit", opacity: busy ? 0.6 : 1 }}>Draft સેવ</button>
+        <button disabled={busy} onClick={() => go("review")} style={{ flex: 1, background: PURPLE, color: "#fff", border: "none", borderRadius: 10, padding: "12px 0", fontWeight: 800, fontSize: 13, cursor: "pointer", fontFamily: "inherit", opacity: busy ? 0.6 : 1 }}>Review માટે મોકલો</button>
+      </div>
+      <div style={{ fontSize: 11.5, color: "#5b6483", marginTop: 8, textAlign: "center" }}>એડમિન મંજૂર કરે પછી બ્લોગ Published થશે</div>
+    </div>
+  );
+}
+
+function BlogDashboard({ user, posts, onSave, onLogout, remaining }) {
+  const [editing, setEditing] = useState(null); // null = list, {} = new, post = edit
+  const mine = useMemo(() => posts.filter((p) => p.by === user.id).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)), [posts, user.id]);
+  const stats = [
+    ["લખેલા", mine.length],
+    ["Review માં", mine.filter((p) => p.status === "review").length],
+    ["Published", mine.filter((p) => p.status === "published").length],
+  ];
+
+  return (
+    <div style={{ background: "#F3F5FA", color: NAVY, minHeight: "100%", paddingBottom: 20 }}>
+      <div style={{ background: PURPLE, color: "#fff", padding: "14px 14px 16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <div style={{ fontSize: 11, color: YELLOW }}>apnidukanSE.in · Blog Writer</div>
+          <div style={{ fontSize: 17, fontWeight: 800, marginTop: 2 }}>{editing ? "બ્લોગ" : `નમસ્તે, ${user.name}`}</div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <TimerChip remaining={remaining} />
+          <button onClick={onLogout} aria-label="લોગઆઉટ" style={{ background: "rgba(255,255,255,0.12)", border: "none", borderRadius: 10, width: 36, height: 36, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <LogOut size={17} color="#fff" />
+          </button>
+        </div>
+      </div>
+
+      {editing ? (
+        <BlogEditor initial={editing} onSave={onSave} onCancel={() => setEditing(null)} />
+      ) : (
+        <>
+          <div style={{ padding: 12, display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8 }}>
+            {stats.map(([l, v]) => (
+              <div key={l} style={{ background: "#fff", borderRadius: 12, padding: 10, textAlign: "center" }}>
+                <div style={{ fontSize: 11, color: "#5b6483" }}>{l}</div>
+                <div style={{ fontSize: 20, fontWeight: 800 }}>{v}</div>
+              </div>
+            ))}
+          </div>
+          <button onClick={() => setEditing({})} style={{ width: "calc(100% - 24px)", margin: "0 12px 12px", background: YELLOW, color: NAVY, border: "none", borderRadius: 12, padding: "13px 0", fontWeight: 800, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontFamily: "inherit" }}>
+            <Plus size={18} /> નવો બ્લોગ લખો
+          </button>
+          <div style={{ padding: "0 12px" }}>
+            <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 6 }}>મારા બ્લોગ</div>
+            {mine.length === 0 && <div style={{ background: "#fff", borderRadius: 10, padding: 12, fontSize: 13, color: "#5b6483" }}>હજુ કોઈ બ્લોગ નથી. પહેલો બ્લોગ લખો.</div>}
+            {mine.map((p) => (
+              <button key={p.id} onClick={() => setEditing(p)} style={{ width: "100%", background: "#fff", border: "none", borderRadius: 10, padding: 10, marginBottom: 6, display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center", cursor: "pointer", textAlign: "left", fontFamily: "inherit", color: NAVY }}>
+                <span style={{ minWidth: 0 }}>
+                  <span style={{ display: "block", fontSize: 14 }}>{p.title}</span>
+                  <span style={{ display: "block", fontSize: 11, color: "#5b6483" }}>{p.category}</span>
+                </span>
+                <StatusPill status={p.status} />
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// DEMO mode: sample data only, nothing is read from or written to Firebase.
+// (Gate ma "Demo જુઓ" link. Live site par chhupavvu hoy to SHOW_DEMO = false karo.)
+// ---------------------------------------------------------------------------
+function seedVisits() {
+  const t = Date.now();
+  const v = (id, by, byName, shop, kind, amount, minsAgo) => ({ id, by, byName, role: SE_ROLE, shop, kind, amount, note: "", createdAt: t - minsAgo * 60000 });
+  return [
+    v("d1", "demo-se1", "Kiran", "Ramesh Kirana Store", "order", 12500, 20),
+    v("d2", "demo-se1", "Kiran", "Patel Medical", "followup", 0, 55),
+    v("d3", "demo-se1", "Kiran", "Shree General Store", "payment", 8000, 90),
+    v("d4", "demo-se1", "Kiran", "Jay Hardware", "shop", 0, 130),
+    v("d5", "demo-se1", "Kiran", "Om Traders", "order", 21000, 170),
+    v("d6", "demo-se2", "Mehul", "Krishna Stores", "order", 9500, 40),
+    v("d7", "demo-se2", "Mehul", "Hari Om Hardware", "followup", 0, 100),
+    v("d8", "demo-se2", "Mehul", "Sai Agency", "shop", 0, 150),
+  ];
+}
+function seedPosts() {
+  const t = Date.now();
+  const p = (id, title, category, status, note) => ({ id, by: "demo-bw", byName: "Mira", title, category, body: "Sample blog text. ".repeat(8), status, note: note || "", createdAt: t, updatedAt: t });
+  return [
+    p("b1", "V Belt કેવી રીતે પસંદ કરવો", "V Belt", "review"),
+    p("b2", "Pneumatic fitting ના પ્રકાર", "Pneumatics", "published"),
+    p("b3", "Safety material ની યાદી", "Safety", "fix", "ફોટા ઉમેરો અને હેડિંગ ટૂંકું કરો."),
+    p("b4", "Handtools ની કાળજી", "Handtools", "draft"),
+  ];
+}
+
+function DemoDashboard({ role, onExit }) {
+  const [visits, setVisits] = useState(seedVisits);
+  const [posts, setPosts] = useState(seedPosts);
+  const [rem, setRem] = useState(6 * 3600);
+  useEffect(() => {
+    const t = setInterval(() => setRem((r) => Math.max(0, r - 1)), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const apps = [
+    { id: "demo-se1", name: "Kiran", job: SE_ROLE, status: SELECTED_STATUS },
+    { id: "demo-se2", name: "Mehul", job: SE_ROLE, status: SELECTED_STATUS },
+  ];
+  const user = role === SO_ROLE ? { role, name: "Demo Officer", id: "demo-so" }
+    : role === BLOG_ROLE ? { role, name: "Mira", id: "demo-bw" }
+    : { role, name: "Kiran", id: "demo-se1" };
+  const addVisit = async (d) => setVisits((v) => [{ id: "n" + Date.now(), by: user.id, byName: user.name, role, ...d, createdAt: Date.now() }, ...v]);
+  const saveBlog = async (d) => setPosts((list) => {
+    const now = Date.now();
+    const rest = d.id ? list.filter((x) => x.id !== d.id) : list;
+    return [{ id: d.id || "n" + now, by: user.id, byName: user.name, note: "", createdAt: now, updatedAt: now, ...d }, ...rest];
+  });
+  return (
+    <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+      <div style={{ background: "#B5541C", color: "#fff", fontSize: 12, textAlign: "center", padding: "6px 10px" }}>
+        DEMO · સેમ્પલ ડેટા · કંઈ સેવ થતું નથી
+      </div>
+      <SalesDashboard user={user} visits={visits} applications={apps} onAddVisit={addVisit}
+        posts={posts} onSaveBlog={saveBlog} onLogout={onExit} remaining={rem} />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+export function SalesDashboard({ user, visits, applications, onAddVisit, onLogout, remaining, posts = [], onSaveBlog }) {
   if (!user) return null;
+  if (user.role === BLOG_ROLE) return <BlogDashboard user={user} posts={posts} onSave={onSaveBlog} onLogout={onLogout} remaining={remaining} />;
   return user.role === SO_ROLE ? (
     <OfficerDashboard user={user} visits={visits} applications={applications} onLogout={onLogout} remaining={remaining} />
   ) : (
