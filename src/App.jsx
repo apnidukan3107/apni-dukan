@@ -96,6 +96,46 @@ function productKey(id) {
   return PRODUCT_KEY_PREFIX + id;
 }
 
+// ---- STOCK: only products that have a numeric "stock" are tracked; all others stay unlimited ----
+function stockOf(p) {
+  return p && typeof p.stock === "number" && !isNaN(p.stock) ? p.stock : null;
+}
+function isOutOfStock(p) {
+  if (!p) return false;
+  const s = stockOf(p);
+  return !!p.soldOut || (s !== null && s <= 0);
+}
+// Reduces stock (atomically, never below 0) for every ordered product that has a stock number.
+async function stockReduce(items) {
+  const byId = {};
+  (items || []).forEach((i) => {
+    const bid = String(i.id).split("__SIZE__")[0];
+    byId[bid] = (byId[bid] || 0) + (Number(i.qty) || 0);
+  });
+  for (const [bid, qty] of Object.entries(byId)) {
+    if (qty <= 0) continue;
+    try {
+      const ref = doc(db, "store", productKey(bid));
+      await runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists()) return;
+        const cur = snap.data().stock;
+        if (typeof cur !== "number") return;
+        tx.update(ref, { stock: Math.max(0, cur - qty) });
+      });
+    } catch (e) {
+      console.error("stockReduce failed", bid, e);
+    }
+  }
+}
+function StockLine({ p }) {
+  const s = stockOf(p);
+  if (s === null) return null;
+  if (s <= 0 || p.soldOut) return <div style={{ fontSize: 11, fontWeight: 800, color: "#b23b3b", marginBottom: 4 }}>Out of stock</div>;
+  if (s <= 5) return <div style={{ fontSize: 11, fontWeight: 700, color: "#c47a00", marginBottom: 4 }}>ફક્ત {s} બાકી</div>;
+  return <div style={{ fontSize: 11, color: "#2e7d4f", marginBottom: 4 }}>સ્ટોક: {s}</div>;
+}
+
 function productsListen(onChange) {
   return onSnapshot(
     collection(db, "store"),
@@ -3221,6 +3261,36 @@ export default function ApniDukanApp() {
   async function toggleSoldOut(prod) {
     await productSave({ ...prod, soldOut: !prod.soldOut });
   }
+  // seller changes stock with + / - (atomic, never below 0). A product with no stock number starts at 1 on "+".
+  async function adjustStock(prod, delta) {
+    try {
+      const ref = doc(db, "store", productKey(prod.id));
+      await runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists()) return;
+        const cur = snap.data().stock;
+        if (typeof cur !== "number") {
+          if (delta > 0) tx.update(ref, { stock: delta });
+          return;
+        }
+        tx.update(ref, { stock: Math.max(0, cur + delta) });
+      });
+    } catch (e) {
+      console.error("adjustStock failed", e);
+    }
+  }
+  // seller types an exact stock number
+  async function setStockExact(prod, raw) {
+    const txt = String(raw).trim();
+    if (txt === "") return;
+    const val = parseInt(txt, 10);
+    if (isNaN(val) || val < 0 || val === stockOf(prod)) return;
+    try {
+      await updateDoc(doc(db, "store", productKey(prod.id)), { stock: val });
+    } catch (e) {
+      console.error("setStockExact failed", e);
+    }
+  }
 
   async function savePendingSellers(next) {
     setPendingSellers(next);
@@ -4257,7 +4327,12 @@ export default function ApniDukanApp() {
 
   function addToCart(id, size) {
     const pr = products.find((x) => x.id === id);
-    if (pr && pr.soldOut) return;   // seller marked this product "ખતમ"
+    if (pr && isOutOfStock(pr)) return;   // seller marked "ખતમ" or stock is 0
+    const leftStock = stockOf(pr);
+    if (leftStock !== null) {
+      const inCart = Object.entries(cart).reduce((s, [k, q]) => (k.split("__SIZE__")[0] === id ? s + q : s), 0);
+      if (inCart >= leftStock) return;   // can't add more than the stock available
+    }
     const key = size && size.trim() ? `${id}__SIZE__${encodeURIComponent(size.trim())}` : id;
     setCart((prev) => ({ ...prev, [key]: (prev[key] || 0) + 1 }));
   }
@@ -4386,9 +4461,16 @@ export default function ApniDukanApp() {
         return;
       }
     }
-    const soldOutItem = cartItems.find((i) => i.soldOut);
+    const soldOutItem = cartItems.find((i) => isOutOfStock(i));
     if (soldOutItem) {
-      setCheckoutError(`${soldOutItem.name} હાલ ઉપલબ્ધ નથી. કૃપા કરીને કાર્ટમાંથી કાઢી નાખો.`);
+      setCheckoutError(`${soldOutItem.name} હાલ ઉપલબ્ધ નથી (Out of stock). કૃપા કરીને કાર્ટમાંથી કાઢી નાખો.`);
+      return;
+    }
+    const qtyByBase = {};
+    cartItems.forEach((i) => { qtyByBase[i.baseId] = (qtyByBase[i.baseId] || 0) + i.qty; });
+    const overItem = cartItems.find((i) => stockOf(i) !== null && qtyByBase[i.baseId] > stockOf(i));
+    if (overItem) {
+      setCheckoutError(`${overItem.name} ફક્ત ${stockOf(overItem)} બાકી છે. કાર્ટમાં સંખ્યા ઓછી કરો.`);
       return;
     }
     setCheckoutError("");
@@ -4422,6 +4504,7 @@ export default function ApniDukanApp() {
       const nextOrders = [order, ...freshOrders];
       const res = await storageSet("orders", JSON.stringify(nextOrders));
       setOrders(nextOrders);
+      stockReduce(order.items);
       setCart({});
       setLastOrderId(String(nextOrders.length));
       setLastOrderPaid(false);
@@ -4489,6 +4572,7 @@ export default function ApniDukanApp() {
       // Even if storage sync fails, don't block the customer — complete the order locally
       const nextOrders = [order, ...orders];
       setOrders(nextOrders);
+      stockReduce(order.items);
       setCart({});
       setLastOrderId(String(nextOrders.length));
       setLastOrderPaid(false);
@@ -5303,7 +5387,7 @@ export default function ApniDukanApp() {
                     onClick={() => { const img = resolveProductImage(p); if (img) setZoomImage({ src: img, name: p.name }); }}
                   >
                     {resolveProductImage(p) ? (
-                      <img src={resolveProductImage(p)} alt={p.name} style={styles.cardImg} />
+                      <img src={resolveProductImage(p)} alt={p.name} style={{ ...styles.cardImg, opacity: isOutOfStock(p) ? 0.5 : 1 }} />
                     ) : (
                       <span style={{ fontSize: 40 }}>{p.img}</span>
                     )}
@@ -5312,6 +5396,9 @@ export default function ApniDukanApp() {
                         {Math.round((1 - p.price / p.mrp) * 100)}% OFF
                       </span>
                     ) : null}
+                    {isOutOfStock(p) ? (
+  <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, background: "#b23b3b", color: "#fff", fontSize: 11, fontWeight: 800, textAlign: "center", padding: "3px 0", letterSpacing: 0.5, zIndex: 2 }}>OUT OF STOCK</div>
+) : null}
                     <button
                       onClick={(e) => { e.stopPropagation(); toggleWishlist(p.id); }}
                       aria-label="wishlist"
@@ -5328,6 +5415,7 @@ export default function ApniDukanApp() {
                   <div style={styles.cardBody}>
                     <div style={styles.cardCat}>{p.category}</div>
                     <div style={styles.cardName}>{p.name}</div>
+                    <StockLine p={p} />
                     <div style={styles.cardBottomRow}>
                       <div>
                         <div style={styles.cardPrice}>
@@ -5337,8 +5425,8 @@ export default function ApniDukanApp() {
                           <div style={styles.cardMrp}>{formatRs(p.mrp)}</div>
                         ) : null}
                       </div>
-                      {p.soldOut ? (
-                        <span style={{ fontSize: 11, fontWeight: 700, color: "#b23b3b" }}>ઉપલબ્ધ નથી</span>
+                      {isOutOfStock(p) ? (
+                        <span style={{ fontSize: 11, fontWeight: 700, color: "#b23b3b" }}>Out of stock</span>
                       ) : p.requiresSize ? (
                         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                           <input
@@ -5879,10 +5967,13 @@ export default function ApniDukanApp() {
                       onClick={() => { const img = resolveProductImage(p); if (img) setZoomImage({ src: img, name: p.name }); }}
                     >
                       {resolveProductImage(p) ? (
-                        <img src={resolveProductImage(p)} alt={p.name} style={styles.cardImg} />
+                        <img src={resolveProductImage(p)} alt={p.name} style={{ ...styles.cardImg, opacity: isOutOfStock(p) ? 0.5 : 1 }} />
                       ) : (
                         <span style={{ fontSize: 40 }}>{p.img}</span>
                       )}
+                      {isOutOfStock(p) ? (
+  <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, background: "#b23b3b", color: "#fff", fontSize: 11, fontWeight: 800, textAlign: "center", padding: "3px 0", letterSpacing: 0.5, zIndex: 2 }}>OUT OF STOCK</div>
+) : null}
                       <button
                         onClick={(e) => { e.stopPropagation(); toggleWishlist(p.id); }}
                         style={{
@@ -5898,12 +5989,13 @@ export default function ApniDukanApp() {
                     <div style={styles.cardBody}>
                       <div style={styles.cardCat}>{p.category}</div>
                       <div style={styles.cardName}>{p.name}</div>
+                      <StockLine p={p} />
                       <div style={styles.cardBottomRow}>
                         <div style={styles.cardPrice}>
                           {formatRs(p.price)}{p.unit ? <span style={{ fontSize: 10, fontWeight: 600 }}> /{p.unit}</span> : null}
                         </div>
-                        {!p.requiresSize && (p.soldOut ? (
-                          <span style={{ fontSize: 11, fontWeight: 700, color: "#b23b3b" }}>ઉપલબ્ધ નથી</span>
+                        {!p.requiresSize && (isOutOfStock(p) ? (
+                          <span style={{ fontSize: 11, fontWeight: 700, color: "#b23b3b" }}>Out of stock</span>
                         ) : (
                           <button style={styles.addBtn} onClick={() => addToCart(p.id)}>ઉમેરો</button>
                         ))}
@@ -6577,10 +6669,10 @@ export default function ApniDukanApp() {
                           onChange={(e) => setSellerStockQuery(e.target.value)}
                         />
                         {shownProducts.slice(0, 60).map((x) => (
-                          <div key={x.id} style={{ ...styles.orderCard, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                          <div key={x.id} style={{ ...styles.orderCard, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 6 }}>
                             <div style={{ flex: 1 }}>
                               <div style={{ fontSize: 12.5, fontWeight: 700 }}>{x.name}</div>
-                              <div style={{ fontSize: 11, color: "#8a8378" }}>{formatRs(x.price)}</div>
+                              <div style={{ fontSize: 11, color: "#8a8378" }}>{formatRs(x.price)}{stockOf(x) !== null ? ` · સ્ટોક: ${stockOf(x)}` : ""}</div>
                             </div>
                             <button
                               onClick={() => toggleSoldOut(x)}
@@ -6591,6 +6683,20 @@ export default function ApniDukanApp() {
                             >
                               {x.soldOut ? "❌ ખતમ" : "✅ ઉપલબ્ધ"}
                             </button>
+                            <div style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8 }}>
+                              <span style={{ fontSize: 11.5, color: "#6b6555", fontWeight: 700 }}>સ્ટોક</span>
+                              <button onClick={() => adjustStock(x, -1)} aria-label="minus" style={{ width: 34, height: 34, borderRadius: 8, border: `1px solid ${T.hairline}`, background: "#fff", fontSize: 18, fontWeight: 800, cursor: "pointer", lineHeight: 1 }}>−</button>
+                              <input
+                                key={x.id + "_" + (stockOf(x) === null ? "" : stockOf(x))}
+                                type="number" min="0" inputMode="numeric"
+                                defaultValue={stockOf(x) === null ? "" : stockOf(x)}
+                                placeholder="—"
+                                onBlur={(e) => setStockExact(x, e.target.value)}
+                                onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); }}
+                                style={{ width: 64, height: 34, textAlign: "center", fontSize: 14, fontWeight: 700, border: `1px solid ${T.hairline}`, borderRadius: 8, outline: "none" }}
+                              />
+                              <button onClick={() => adjustStock(x, 1)} aria-label="plus" style={{ width: 34, height: 34, borderRadius: 8, border: `1px solid ${T.hairline}`, background: "#fff", fontSize: 18, fontWeight: 800, cursor: "pointer", lineHeight: 1 }}>+</button>
+                            </div>
                           </div>
                         ))}
                         {shownProducts.length > 60 && (
