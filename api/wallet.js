@@ -4,6 +4,8 @@ import crypto from "crypto";
 const STORE = "store";                          // tamari app no collection
 const PRODUCT_PREFIX = "product__";             // store/product__<id>
 const ORDERS_DOC = "orders";                    // store/orders (value = JSON string)
+const TABS = ["Groceries", "Krishna Battery", "Aarti Electrical", "Dhairya's Service", "Shaurya Stationary"];
+const PAYMENTS = ["cash", "credit", "advance"];
 const REQ = "walletRequests";                // sign up requests: walletRequests/<mobile>
 const FREE_DELIVERY_PINCODES = ["382345", "382330"];
 
@@ -206,13 +208,16 @@ async function listCustomers() {
 async function signup(b) {
   const name = String(b.name || "").trim().slice(0, 80);
   const mobile = String(b.mobile || "").trim();
-  const shop = String(b.shop || "").trim().slice(0, 100);
+  const groceryShop = String(b.groceryShop || "").trim().slice(0, 100);
+  const tabs = Array.isArray(b.tabs) ? TABS.filter((t) => b.tabs.includes(t)) : [];
+  const payment = String(b.payment || "");
   const address = String(b.address || "").trim().slice(0, 400);
   const pincode = String(b.pincode || "").trim();
   const password = String(b.password || "");
   if (!name) throw new HttpError(400, "NAME_REQUIRED");
   if (!/^[0-9]{10}$/.test(mobile)) throw new HttpError(400, "MOBILE_INVALID");
-  if (!shop) throw new HttpError(400, "SHOP_REQUIRED");
+  if (!tabs.length) throw new HttpError(400, "TABS_REQUIRED");
+  if (!PAYMENTS.includes(payment)) throw new HttpError(400, "PAYMENT_REQUIRED");
   if (!address) throw new HttpError(400, "ADDRESS_REQUIRED");
   if (!/^[0-9]{6}$/.test(pincode)) throw new HttpError(400, "PINCODE_INVALID");
   if (password.length < 6 || password.length > 60) throw new HttpError(400, "PASSWORD_SHORT");
@@ -223,7 +228,7 @@ async function signup(b) {
   try { ex = plain(await gfetch(`${FS}/${REQ}/${mobile}`)); } catch (e) { if (e.status !== 404) throw e; }
   if (ex && ex.status === "pending") throw new HttpError(409, "ALREADY_PENDING");
   await gfetch(`${FS}/${REQ}/${mobile}`, "PATCH", {
-    fields: txnFields({ name, mobile, shop, address, pincode, passHash: hashPw(password), status: "pending", reason: "", createdAt: new Date(), decidedAt: null }),
+    fields: txnFields({ name, mobile, groceryShop, tabs, payment, address, pincode, passHash: hashPw(password), status: "pending", reason: "", createdAt: new Date(), decidedAt: null }),
   });
   return { ok: true };
 }
@@ -232,7 +237,7 @@ async function listRequests() {
   const d = await gfetch(`${FS}/${REQ}?pageSize=300`);
   const requests = (d.documents || []).map((x) => {
     const f = plain(x);
-    return { mobile: x.name.split("/").pop(), name: f.name, shop: f.shop, address: f.address, pincode: f.pincode, status: f.status, reason: f.reason || "", createdAt: f.createdAt };
+    return { mobile: x.name.split("/").pop(), name: f.name, groceryShop: f.groceryShop || "", tabs: f.tabs || [], payment: f.payment || "", address: f.address, pincode: f.pincode, status: f.status, reason: f.reason || "", createdAt: f.createdAt };
   }).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
   return { ok: true, requests };
 }
@@ -249,7 +254,7 @@ async function approveRequest(b) {
   if (r.status === "approved") throw new HttpError(409, "ALREADY_DONE");
   try {
     await gfetch(`${FS}/wallets/${mobile}?currentDocument.exists=false`, "PATCH", {
-      fields: txnFields({ name: r.name, mobile, shop: r.shop || "", address: r.address || "", pincode: r.pincode || "", balance: 0, passHash: r.passHash, fails: 0, createdAt: new Date() }),
+      fields: txnFields({ name: r.name, mobile, groceryShop: r.groceryShop || "", tabs: r.tabs || [], payment: r.payment || "", address: r.address || "", pincode: r.pincode || "", balance: 0, passHash: r.passHash, fails: 0, createdAt: new Date() }),
     });
   } catch (e) {
     if (e.status === 409 || /ALREADY_EXISTS|already exists/i.test(e.gmsg || "")) throw new HttpError(409, "MOBILE_EXISTS");
@@ -302,7 +307,7 @@ async function login(b) {
     throw new HttpError(401, "WRONG");
   }
   if (f.fails) await gfetch(`${FS}/wallets/${mobile}?${maskQ(["fails"])}`, "PATCH", { fields: txnFields({ fails: 0 }) });
-  return { ok: true, token: makeToken(mobile, f.passHash), name: f.name || "", balance: money(f.balance || 0), mobile, shop: f.shop || "", address: f.address || "", pincode: f.pincode || "" };
+  return { ok: true, token: makeToken(mobile, f.passHash), name: f.name || "", balance: money(f.balance || 0), mobile, address: f.address || "", pincode: f.pincode || "", tabs: f.tabs || [], payment: f.payment || "" };
 }
 
 async function me(b) {
@@ -312,7 +317,7 @@ async function me(b) {
   catch (e) { if (e.status === 404) throw new HttpError(401, "LOGIN_REQUIRED"); throw e; }
   const f = plain(w);
   if (tagOf(f.passHash) !== t.t) throw new HttpError(401, "LOGIN_REQUIRED");
-  return { ok: true, name: f.name || "", balance: money(f.balance || 0), mobile: t.u, shop: f.shop || "", address: f.address || "", pincode: f.pincode || "" };
+  return { ok: true, name: f.name || "", balance: money(f.balance || 0), mobile: t.u, address: f.address || "", pincode: f.pincode || "", tabs: f.tabs || [], payment: f.payment || "" };
 }
 
 async function pay(b) {
