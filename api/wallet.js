@@ -4,6 +4,7 @@ import crypto from "crypto";
 const STORE = "store";                          // tamari app no collection
 const PRODUCT_PREFIX = "product__";             // store/product__<id>
 const ORDERS_DOC = "orders";                    // store/orders (value = JSON string)
+const REQ = "walletRequests";                // sign up requests: walletRequests/<mobile>
 const FREE_DELIVERY_PINCODES = ["382345", "382330"];
 
 let SA = {};
@@ -200,6 +201,77 @@ async function listCustomers() {
   return { ok: true, customers };
 }
 
+
+// ---------- Sign up request (customer) + approval (admin) ----------
+async function signup(b) {
+  const name = String(b.name || "").trim().slice(0, 80);
+  const mobile = String(b.mobile || "").trim();
+  const shop = String(b.shop || "").trim().slice(0, 100);
+  const address = String(b.address || "").trim().slice(0, 400);
+  const pincode = String(b.pincode || "").trim();
+  const password = String(b.password || "");
+  if (!name) throw new HttpError(400, "NAME_REQUIRED");
+  if (!/^[0-9]{10}$/.test(mobile)) throw new HttpError(400, "MOBILE_INVALID");
+  if (!shop) throw new HttpError(400, "SHOP_REQUIRED");
+  if (!address) throw new HttpError(400, "ADDRESS_REQUIRED");
+  if (!/^[0-9]{6}$/.test(pincode)) throw new HttpError(400, "PINCODE_INVALID");
+  if (password.length < 6 || password.length > 60) throw new HttpError(400, "PASSWORD_SHORT");
+  let exists = true;
+  try { await gfetch(`${FS}/wallets/${mobile}`); } catch (e) { if (e.status === 404) exists = false; else throw e; }
+  if (exists) throw new HttpError(409, "MOBILE_EXISTS");
+  let ex = null;
+  try { ex = plain(await gfetch(`${FS}/${REQ}/${mobile}`)); } catch (e) { if (e.status !== 404) throw e; }
+  if (ex && ex.status === "pending") throw new HttpError(409, "ALREADY_PENDING");
+  await gfetch(`${FS}/${REQ}/${mobile}`, "PATCH", {
+    fields: txnFields({ name, mobile, shop, address, pincode, passHash: hashPw(password), status: "pending", reason: "", createdAt: new Date(), decidedAt: null }),
+  });
+  return { ok: true };
+}
+
+async function listRequests() {
+  const d = await gfetch(`${FS}/${REQ}?pageSize=300`);
+  const requests = (d.documents || []).map((x) => {
+    const f = plain(x);
+    return { mobile: x.name.split("/").pop(), name: f.name, shop: f.shop, address: f.address, pincode: f.pincode, status: f.status, reason: f.reason || "", createdAt: f.createdAt };
+  }).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  return { ok: true, requests };
+}
+
+async function getRequest(mobile) {
+  if (!/^\d{10}$/.test(mobile)) throw new HttpError(400, "MOBILE_INVALID");
+  try { return plain(await gfetch(`${FS}/${REQ}/${mobile}`)); }
+  catch (e) { if (e.status === 404) throw new HttpError(404, "REQUEST_NOT_FOUND"); throw e; }
+}
+
+async function approveRequest(b) {
+  const mobile = String(b.mobile || "");
+  const r = await getRequest(mobile);
+  if (r.status === "approved") throw new HttpError(409, "ALREADY_DONE");
+  try {
+    await gfetch(`${FS}/wallets/${mobile}?currentDocument.exists=false`, "PATCH", {
+      fields: txnFields({ name: r.name, mobile, shop: r.shop || "", address: r.address || "", pincode: r.pincode || "", balance: 0, passHash: r.passHash, fails: 0, createdAt: new Date() }),
+    });
+  } catch (e) {
+    if (e.status === 409 || /ALREADY_EXISTS|already exists/i.test(e.gmsg || "")) throw new HttpError(409, "MOBILE_EXISTS");
+    throw e;
+  }
+  await gfetch(`${FS}/${REQ}/${mobile}?${maskQ(["status", "reason", "decidedAt"])}`, "PATCH", {
+    fields: txnFields({ status: "approved", reason: "", decidedAt: new Date() }),
+  });
+  return { ok: true };
+}
+
+async function rejectRequest(b) {
+  const mobile = String(b.mobile || "");
+  const reason = String(b.reason || "").trim().slice(0, 200);
+  const r = await getRequest(mobile);
+  if (r.status === "approved") throw new HttpError(409, "ALREADY_DONE");
+  await gfetch(`${FS}/${REQ}/${mobile}?${maskQ(["status", "reason", "decidedAt"])}`, "PATCH", {
+    fields: txnFields({ status: "rejected", reason, decidedAt: new Date() }),
+  });
+  return { ok: true };
+}
+
 // ---------- Customer: login + wallet ----------
 async function login(b) {
   const mobile = String(b.mobile || "").trim();
@@ -207,7 +279,19 @@ async function login(b) {
   if (!/^\d{10}$/.test(mobile) || !password) throw new HttpError(401, "WRONG");
   let w;
   try { w = await gfetch(`${FS}/wallets/${mobile}`); }
-  catch (e) { if (e.status === 404) { await delay(500); throw new HttpError(401, "WRONG"); } throw e; }
+  catch (e) {
+    if (e.status === 404) {
+      let rq = null;
+      try { rq = plain(await gfetch(`${FS}/${REQ}/${mobile}`)); } catch (e2) { if (e2.status !== 404) throw e2; }
+      if (rq && rq.passHash && checkPw(password, rq.passHash)) {
+        if (rq.status === "pending") throw new HttpError(403, "PENDING");
+        if (rq.status === "rejected") throw new HttpError(403, "REJECTED", { reason: rq.reason || "" });
+      }
+      await delay(500);
+      throw new HttpError(401, "WRONG");
+    }
+    throw e;
+  }
   const f = plain(w);
   if (f.lockUntil && Date.parse(f.lockUntil) > Date.now()) throw new HttpError(429, "LOCKED");
   if (!f.passHash || !checkPw(password, f.passHash)) {
@@ -218,7 +302,7 @@ async function login(b) {
     throw new HttpError(401, "WRONG");
   }
   if (f.fails) await gfetch(`${FS}/wallets/${mobile}?${maskQ(["fails"])}`, "PATCH", { fields: txnFields({ fails: 0 }) });
-  return { ok: true, token: makeToken(mobile, f.passHash), name: f.name || "", balance: money(f.balance || 0) };
+  return { ok: true, token: makeToken(mobile, f.passHash), name: f.name || "", balance: money(f.balance || 0), mobile, shop: f.shop || "", address: f.address || "", pincode: f.pincode || "" };
 }
 
 async function me(b) {
@@ -228,7 +312,7 @@ async function me(b) {
   catch (e) { if (e.status === 404) throw new HttpError(401, "LOGIN_REQUIRED"); throw e; }
   const f = plain(w);
   if (tagOf(f.passHash) !== t.t) throw new HttpError(401, "LOGIN_REQUIRED");
-  return { ok: true, name: f.name || "", balance: money(f.balance || 0) };
+  return { ok: true, name: f.name || "", balance: money(f.balance || 0), mobile: t.u, shop: f.shop || "", address: f.address || "", pincode: f.pincode || "" };
 }
 
 async function pay(b) {
@@ -348,6 +432,7 @@ export default async function handler(req, res) {
     if (b.action === "pay") return res.status(200).json(await pay(b));
     if (b.action === "me") return res.status(200).json(await me(b));
     if (b.action === "login") return res.status(200).json(await login(b));
+    if (b.action === "signup") return res.status(200).json(await signup(b));
 
     if (!process.env.ADMIN_SECRET) throw new HttpError(500, "NO_ADMIN_SECRET");
     if (!sameSecret(b.secret, process.env.ADMIN_SECRET)) {
@@ -359,6 +444,9 @@ export default async function handler(req, res) {
     if (b.action === "topup") return res.status(200).json(await topup(b));
     if (b.action === "reset") return res.status(200).json(await resetPassword(b));
     if (b.action === "list") return res.status(200).json(await listCustomers());
+    if (b.action === "requests") return res.status(200).json(await listRequests());
+    if (b.action === "approve") return res.status(200).json(await approveRequest(b));
+    if (b.action === "reject") return res.status(200).json(await rejectRequest(b));
     throw new HttpError(400, "UNKNOWN_ACTION");
   } catch (e) {
     if (e instanceof HttpError) return res.status(e.status).json({ error: e.code, ...e.extra });
