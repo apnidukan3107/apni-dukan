@@ -15,15 +15,21 @@ const apiErr = (e) => ({
   SERVER: "Server ma gadbad chhe. Vercel Logs check karo.",
   NAME_REQUIRED: "નામ લખો",
   MOBILE_INVALID: "૧૦ આંકડાનો મોબાઇલ નંબર લખો",
-  SHOP_REQUIRED: "દુકાનનું નામ લખો",
+  TABS_REQUIRED: "ઓછામાં ઓછું એક tab પસંદ કરો",
+  PAYMENT_REQUIRED: "Payment પસંદ કરો",
   ADDRESS_REQUIRED: "સરનામું લખો",
   PINCODE_INVALID: "૬ આંકડાનો પિન કોડ લખો",
   PASSWORD_SHORT: "પાસવર્ડ ઓછામાં ઓછો ૬ અક્ષરનો રાખો",
   MOBILE_EXISTS: "આ નંબર થી Premium account પહેલાથી છે. Login કરો.",
   ALREADY_PENDING: "તમારી request પહેલાથી બાકી છે. મંજૂરીની રાહ જુઓ.",
 }[e] || null);
-const prof = (d) => ({ name: d.name, balance: d.balance, mobile: d.mobile || "", shop: d.shop || "", address: d.address || "", pincode: d.pincode || "" });
+const prof = (d) => ({ name: d.name, balance: d.balance, mobile: d.mobile || "", address: d.address || "", pincode: d.pincode || "", tabs: Array.isArray(d.tabs) ? d.tabs : [], payment: d.payment || "" });
 const rs = (n) => "₹" + (Math.round((Number(n) || 0) * 100) / 100).toLocaleString("en-IN");
+
+export const PREMIUM_TABS = ["Groceries", "Krishna Battery", "Aarti Electrical", "Dhairya's Service", "Shaurya Stationary"];
+const TAB_EMOJI = { "Groceries": "🛒", "Krishna Battery": "🔋", "Aarti Electrical": "💡", "Dhairya's Service": "🛠️", "Shaurya Stationary": "✏️" };
+const PAY_OPTS = [["cash", "Cash (રોકડા)"], ["credit", "Credit (ઉધાર)"], ["advance", "Advance payment"]];
+const PAY_LABEL = { cash: "Cash", credit: "Credit", advance: "Advance" };
 
 const C = {
   blue: "#0b3d91", bg: "#e8f0fe", green: "#1b6e3c", gbg: "#e6f6ec",
@@ -74,7 +80,9 @@ export function PremiumLoginButton({ w }) {
   const [mode, setMode] = useState("login"); // login | signup | done
   const [mobile, setMobile] = useState("");
   const [pass, setPass] = useState("");
-  const [f, setF] = useState({ name: "", shop: "", address: "", pincode: "" });
+  const [f, setF] = useState({ name: "", groceryShop: "", address: "", pincode: "" });
+  const [tabs, setTabs] = useState([]);
+  const [pay, setPay] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const setField = (k, fn) => (e) => { setF({ ...f, [k]: fn ? fn(e.target.value) : e.target.value }); setErr(""); };
@@ -105,14 +113,15 @@ export function PremiumLoginButton({ w }) {
   const sendSignup = async () => {
     if (!f.name.trim()) return setErr("નામ લખો");
     if (!/^\d{10}$/.test(mobile.trim())) return setErr("૧૦ આંકડાનો મોબાઇલ નંબર લખો");
-    if (!f.shop.trim()) return setErr("દુકાનનું નામ લખો");
     if (!f.address.trim()) return setErr("સરનામું લખો");
     if (!/^\d{6}$/.test(f.pincode.trim())) return setErr("૬ આંકડાનો પિન કોડ લખો");
+    if (!tabs.length) return setErr("ઓછામાં ઓછું એક tab પસંદ કરો");
+    if (!pay) return setErr("Payment પસંદ કરો");
     if (pass.length < 6) return setErr("પાસવર્ડ ઓછામાં ઓછો ૬ અક્ષરનો રાખો");
     setBusy(true); setErr("");
-    const d = await post({ action: "signup", name: f.name, mobile: mobile.trim(), shop: f.shop, address: f.address, pincode: f.pincode.trim(), password: pass });
+    const d = await post({ action: "signup", name: f.name, mobile: mobile.trim(), groceryShop: f.groceryShop, tabs, payment: pay, address: f.address, pincode: f.pincode.trim(), password: pass });
     setBusy(false);
-    if (d.ok) { setMode("done"); setPass(""); setF({ name: "", shop: "", address: "", pincode: "" }); }
+    if (d.ok) { setMode("done"); setPass(""); setTabs([]); setPay(""); setF({ name: "", groceryShop: "", address: "", pincode: "" }); }
     else setErr(apiErr(d.error) || "Request na gayi. Fari prayatna karo");
   };
 
@@ -158,9 +167,33 @@ export function PremiumLoginButton({ w }) {
                 <div style={{ fontSize: 12, color: "#667085", marginBottom: 12 }}>એક જ વાર ભરવાનું. મંજૂરી મળે પછી Login થશે.</div>
                 <input style={input} placeholder="નામ" value={f.name} onChange={setField("name")} />
                 <input style={input} inputMode="numeric" maxLength={10} placeholder="મોબાઇલ નંબર" value={mobile} onChange={(e) => { setMobile(e.target.value.replace(/[^0-9]/g, "")); setErr(""); }} />
-                <input style={input} placeholder="દુકાનનું નામ" value={f.shop} onChange={setField("shop")} />
                 <input style={input} placeholder="સરનામું" value={f.address} onChange={setField("address")} />
                 <input style={input} inputMode="numeric" maxLength={6} placeholder="પિન કોડ" value={f.pincode} onChange={setField("pincode", (v) => v.replace(/[^0-9]/g, "").slice(0, 6))} />
+                <div style={{ fontSize: 14, fontWeight: 600, margin: "4px 0 6px" }}>તમને કયા tab જોઈએ? {tabs.length ? `(${tabs.length}/5)` : ""}</div>
+                <div style={{ fontSize: 12, color: "#667085", marginBottom: 8 }}>જે પસંદ કરશો તે જ Login પછી દેખાશે.</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+                  {PREMIUM_TABS.map((t) => {
+                    const on = tabs.includes(t);
+                    return (
+                      <div key={t} onClick={() => { setTabs(on ? tabs.filter((x) => x !== t) : [...tabs, t]); setErr(""); }}
+                        style={{ position: "relative", textAlign: "center", padding: "12px 6px", borderRadius: 12, cursor: "pointer", fontSize: 13, border: on ? "2px solid " + C.blue : "1px solid " + C.line, background: on ? C.bg : "#fff", color: on ? C.blue : "#222", fontWeight: on ? 600 : 400 }}>
+                        {on && <span style={{ position: "absolute", top: 4, right: 8, color: C.blue, fontWeight: 700 }}>✔</span>}
+                        <div style={{ fontSize: 24, marginBottom: 4 }}>{TAB_EMOJI[t]}</div>
+                        {t}
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>Payment કેવી રીતે?</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+                  {PAY_OPTS.map(([k, l]) => (
+                    <div key={k} onClick={() => { setPay(k); setErr(""); }}
+                      style={{ padding: "8px 12px", borderRadius: 20, cursor: "pointer", fontSize: 13, border: pay === k ? "2px solid " + C.blue : "1px solid " + C.line, background: pay === k ? C.bg : "#fff", color: pay === k ? C.blue : "#222", fontWeight: pay === k ? 600 : 400 }}>
+                      {l}
+                    </div>
+                  ))}
+                </div>
+                <input style={input} placeholder="અત્યારે Groceries ક્યાંથી લો છો? દુકાનનું નામ (વૈકલ્પિક)" value={f.groceryShop} onChange={setField("groceryShop")} />
                 <input style={input} type="password" placeholder="પાસવર્ડ નક્કી કરો (ઓછામાં ઓછા ૬ અક્ષર)" value={pass} onChange={(e) => { setPass(e.target.value); setErr(""); }} />
                 {err && <div style={{ color: C.red, fontSize: 13, marginBottom: 8 }}>{err}</div>}
                 <button onClick={sendSignup} style={{ ...btn, width: "100%", background: C.blue, color: "#fff", fontWeight: 600 }}>{busy ? "Request jay chhe..." : "Request મોકલો"}</button>
@@ -323,7 +356,9 @@ export function AdminCustomers() {
                 {r.status === "approved" ? "Manjur" : r.status === "rejected" ? "Namanjur" : "Baki"}
               </div>
             </div>
-            <div style={{ fontSize: 12, color: "#667085" }}>{r.mobile} • {r.shop}</div>
+            <div style={{ fontSize: 12, color: "#667085" }}>{r.mobile} • Payment: {PAY_LABEL[r.payment] || "-"}</div>
+            <div style={{ fontSize: 12, color: "#667085" }}>🏷️ {(r.tabs || []).join(", ") || "-"}</div>
+            {r.groceryShop && <div style={{ fontSize: 12, color: "#667085" }}>Groceries atyare: {r.groceryShop}</div>}
             <div style={{ fontSize: 12, color: "#667085" }}>{r.address} - {r.pincode}</div>
             {r.status === "rejected" && r.reason && <div style={{ fontSize: 12, color: C.red }}>Karan: {r.reason}</div>}
             {r.status !== "approved" && (
