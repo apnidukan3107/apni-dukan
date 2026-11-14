@@ -13,7 +13,16 @@ const apiErr = (e) => ({
   NO_SERVICE_ACCOUNT: "Vercel ma FIREBASE_SERVICE_ACCOUNT nathi ke khotu chhe.",
   NO_ADMIN_SECRET: "Vercel ma ADMIN_SECRET nathi, ke Redeploy baki chhe.",
   SERVER: "Server ma gadbad chhe. Vercel Logs check karo.",
+  NAME_REQUIRED: "નામ લખો",
+  MOBILE_INVALID: "૧૦ આંકડાનો મોબાઇલ નંબર લખો",
+  SHOP_REQUIRED: "દુકાનનું નામ લખો",
+  ADDRESS_REQUIRED: "સરનામું લખો",
+  PINCODE_INVALID: "૬ આંકડાનો પિન કોડ લખો",
+  PASSWORD_SHORT: "પાસવર્ડ ઓછામાં ઓછો ૬ અક્ષરનો રાખો",
+  MOBILE_EXISTS: "આ નંબર થી Premium account પહેલાથી છે. Login કરો.",
+  ALREADY_PENDING: "તમારી request પહેલાથી બાકી છે. મંજૂરીની રાહ જુઓ.",
 }[e] || null);
+const prof = (d) => ({ name: d.name, balance: d.balance, mobile: d.mobile || "", shop: d.shop || "", address: d.address || "", pincode: d.pincode || "" });
 const rs = (n) => "₹" + (Math.round((Number(n) || 0) * 100) / 100).toLocaleString("en-IN");
 
 const C = {
@@ -35,7 +44,7 @@ export function useWallet() {
     if (!token) return;
     try {
       const d = await post({ action: "me", token });
-      if (d.ok) setWallet({ name: d.name, balance: d.balance });
+      if (d.ok) setWallet(prof(d));
       else if (d.error === "LOGIN_REQUIRED") clear();
     } catch (e) { /* internet nathi, juno balance rehva do */ }
   }, [token, clear]);
@@ -52,7 +61,7 @@ export function useWallet() {
     const d = await post({ action: "login", mobile, password });
     if (!d.ok) { const e = new Error(d.error || "SERVER"); e.code = d.error; throw e; }
     try { localStorage.setItem(TOKEN_KEY, d.token); } catch (e) { /* ignore */ }
-    setWallet({ name: d.name, balance: d.balance });
+    setWallet(prof(d));
     setToken(d.token);
   };
   const logout = clear;
@@ -62,10 +71,15 @@ export function useWallet() {
 // ---------- Header: Premium Login button / naam + wallet ----------
 export function PremiumLoginButton({ w }) {
   const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState("login"); // login | signup | done
   const [mobile, setMobile] = useState("");
   const [pass, setPass] = useState("");
+  const [f, setF] = useState({ name: "", shop: "", address: "", pincode: "" });
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  const setField = (k, fn) => (e) => { setF({ ...f, [k]: fn ? fn(e.target.value) : e.target.value }); setErr(""); };
+
+  const close = () => { setOpen(false); setMode("login"); setErr(""); setPass(""); };
 
   const submit = async () => {
     if (!/^\d{10}$/.test(mobile.trim())) return setErr("૧૦ આંકડાનો મોબાઇલ નંબર લખો");
@@ -77,11 +91,29 @@ export function PremiumLoginButton({ w }) {
     } catch (e) {
       setErr(e.code === "LOCKED"
         ? "ઘણા ખોટા પ્રયત્નો થયા, 15 મિનિટ પછી ફરી કરો"
-        : e.code === "WRONG"
-          ? "મોબાઇલ નંબર અથવા પાસવર્ડ ખોટો છે"
-          : apiErr(e.code) || "Login na thayu. Fari prayatna karo");
+        : e.code === "PENDING"
+          ? "તમારી request હજી બાકી છે. મંજૂરી મળે પછી Login થશે."
+          : e.code === "REJECTED"
+            ? "તમારી request નામંજૂર થઈ છે." + (e.reason ? " કારણ: " + e.reason : "")
+            : e.code === "WRONG"
+              ? "મોબાઇલ નંબર અથવા પાસવર્ડ ખોટો છે"
+              : apiErr(e.code) || "Login na thayu. Fari prayatna karo");
     }
     setBusy(false);
+  };
+
+  const sendSignup = async () => {
+    if (!f.name.trim()) return setErr("નામ લખો");
+    if (!/^\d{10}$/.test(mobile.trim())) return setErr("૧૦ આંકડાનો મોબાઇલ નંબર લખો");
+    if (!f.shop.trim()) return setErr("દુકાનનું નામ લખો");
+    if (!f.address.trim()) return setErr("સરનામું લખો");
+    if (!/^\d{6}$/.test(f.pincode.trim())) return setErr("૬ આંકડાનો પિન કોડ લખો");
+    if (pass.length < 6) return setErr("પાસવર્ડ ઓછામાં ઓછો ૬ અક્ષરનો રાખો");
+    setBusy(true); setErr("");
+    const d = await post({ action: "signup", name: f.name, mobile: mobile.trim(), shop: f.shop, address: f.address, pincode: f.pincode.trim(), password: pass });
+    setBusy(false);
+    if (d.ok) { setMode("done"); setPass(""); setF({ name: "", shop: "", address: "", pincode: "" }); }
+    else setErr(apiErr(d.error) || "Request na gayi. Fari prayatna karo");
   };
 
   if (w.user) {
@@ -101,20 +133,47 @@ export function PremiumLoginButton({ w }) {
     );
   }
 
+  const link = { fontSize: 13, color: C.blue, marginTop: 10, textAlign: "center", cursor: "pointer", textDecoration: "underline" };
   return (
     <>
       <button onClick={() => setOpen(true)} style={{ ...btn, background: C.bg, color: C.blue, borderColor: C.blue, fontWeight: 600 }}>
         Premium Login
       </button>
       {open && (
-        <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 12, padding: 18, width: "100%", maxWidth: 340 }}>
-            <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 12 }}>Premium Login</div>
-            <input style={input} inputMode="numeric" maxLength={10} placeholder="મોબાઇલ નંબર" value={mobile} onChange={(e) => { setMobile(e.target.value); setErr(""); }} />
-            <input style={input} type="password" placeholder="પાસવર્ડ" value={pass} onChange={(e) => { setPass(e.target.value); setErr(""); }} onKeyDown={(e) => e.key === "Enter" && submit()} />
-            {err && <div style={{ color: C.red, fontSize: 13, marginBottom: 8 }}>{err}</div>}
-            <button onClick={submit} style={{ ...btn, width: "100%", background: C.blue, color: "#fff", fontWeight: 600 }}>{busy ? "Login thay chhe..." : "Login"}</button>
-            <div style={{ fontSize: 12, color: "#667085", marginTop: 10 }}>Login id ane password dukan mathi malse.</div>
+        <div onClick={close} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 12, padding: 18, width: "100%", maxWidth: 340, maxHeight: "90vh", overflowY: "auto" }}>
+            {mode === "login" && (
+              <>
+                <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 12 }}>Premium Login</div>
+                <input style={input} inputMode="numeric" maxLength={10} placeholder="મોબાઇલ નંબર" value={mobile} onChange={(e) => { setMobile(e.target.value); setErr(""); }} />
+                <input style={input} type="password" placeholder="પાસવર્ડ" value={pass} onChange={(e) => { setPass(e.target.value); setErr(""); }} onKeyDown={(e) => e.key === "Enter" && submit()} />
+                {err && <div style={{ color: C.red, fontSize: 13, marginBottom: 8 }}>{err}</div>}
+                <button onClick={submit} style={{ ...btn, width: "100%", background: C.blue, color: "#fff", fontWeight: 600 }}>{busy ? "Login thay chhe..." : "Login"}</button>
+                <div style={link} onClick={() => { setMode("signup"); setErr(""); setPass(""); }}>નવા છો? Sign up કરો (મંજૂરી પછી Login)</div>
+              </>
+            )}
+            {mode === "signup" && (
+              <>
+                <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 4 }}>Premium Sign up</div>
+                <div style={{ fontSize: 12, color: "#667085", marginBottom: 12 }}>એક જ વાર ભરવાનું. મંજૂરી મળે પછી Login થશે.</div>
+                <input style={input} placeholder="નામ" value={f.name} onChange={setField("name")} />
+                <input style={input} inputMode="numeric" maxLength={10} placeholder="મોબાઇલ નંબર" value={mobile} onChange={(e) => { setMobile(e.target.value.replace(/[^0-9]/g, "")); setErr(""); }} />
+                <input style={input} placeholder="દુકાનનું નામ" value={f.shop} onChange={setField("shop")} />
+                <input style={input} placeholder="સરનામું" value={f.address} onChange={setField("address")} />
+                <input style={input} inputMode="numeric" maxLength={6} placeholder="પિન કોડ" value={f.pincode} onChange={setField("pincode", (v) => v.replace(/[^0-9]/g, "").slice(0, 6))} />
+                <input style={input} type="password" placeholder="પાસવર્ડ નક્કી કરો (ઓછામાં ઓછા ૬ અક્ષર)" value={pass} onChange={(e) => { setPass(e.target.value); setErr(""); }} />
+                {err && <div style={{ color: C.red, fontSize: 13, marginBottom: 8 }}>{err}</div>}
+                <button onClick={sendSignup} style={{ ...btn, width: "100%", background: C.blue, color: "#fff", fontWeight: 600 }}>{busy ? "Request jay chhe..." : "Request મોકલો"}</button>
+                <div style={link} onClick={() => { setMode("login"); setErr(""); }}>પાછા Login પર</div>
+              </>
+            )}
+            {mode === "done" && (
+              <>
+                <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 8, color: C.green }}>Request મોકલાઈ ગઈ</div>
+                <div style={{ fontSize: 14, marginBottom: 12 }}>સ્થિતિ: બાકી. મંજૂરી મળે પછી તમારા મોબાઇલ નંબર અને પાસવર્ડથી Login કરી શકશો.</div>
+                <button onClick={close} style={{ ...btn, width: "100%" }}>ઠીક છે</button>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -188,6 +247,7 @@ export function AdminCustomers() {
   const [secret, setSecret] = useState("");
   const [f, setF] = useState({ name: "", mobile: "", password: "", amount: "0" });
   const [list, setList] = useState(null);
+  const [reqs, setReqs] = useState(null);
   const [msg, setMsg] = useState(null);
   const [busy, setBusy] = useState(false);
 
@@ -228,12 +288,53 @@ export function AdminCustomers() {
     const d = await call("reset", { uid: c.uid, password: p });
     setMsg(d.ok ? { bad: false, t: "Password badlai gayo." } : { bad: true, t: errText(d.error, d) });
   };
+  const loadReqs = async () => {
+    const d = await call("requests");
+    if (d.ok) setReqs(d.requests); else setMsg({ bad: true, t: errText(d.error, d) });
+  };
+  const approveReq = async (r) => {
+    if (!window.confirm(`${r.name} (${r.mobile}) ne manjur karo?`)) return;
+    const d = await call("approve", { mobile: r.mobile });
+    if (d.ok) { setMsg({ bad: false, t: `${r.name} manjur thayo. Have e Login kari shake.` }); loadReqs(); load(); }
+    else setMsg({ bad: true, t: errText(d.error, d) });
+  };
+  const rejectReq = async (r) => {
+    const reason = window.prompt(`${r.name} ni request namanjur karvanu karan (khali rakhi shako):`, "");
+    if (reason === null) return;
+    const d = await call("reject", { mobile: r.mobile, reason });
+    if (d.ok) { setMsg({ bad: false, t: "Request namanjur thai." }); loadReqs(); }
+    else setMsg({ bad: true, t: errText(d.error, d) });
+  };
   const set = (k) => (e) => { setF({ ...f, [k]: e.target.value }); setMsg(null); };
 
   return (
     <div style={{ maxWidth: 420 }}>
       <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 10 }}>Premium customers</div>
       <input style={input} type="password" placeholder="Admin key" value={secret} onChange={(e) => setSecret(e.target.value)} />
+      <div style={{ border: "1px solid " + C.blue, borderRadius: 10, padding: 12, marginBottom: 12 }}>
+        <div style={{ fontWeight: 600, marginBottom: 8 }}>Sign up requests</div>
+        <button onClick={loadReqs} style={{ ...btn, marginBottom: 8 }}>Requests juo</button>
+        {reqs && reqs.length === 0 && <div style={{ fontSize: 13, color: "#667085" }}>Koi request nathi.</div>}
+        {reqs && reqs.map((r) => (
+          <div key={r.mobile} style={{ borderTop: "1px solid " + C.line, padding: "8px 0" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>{r.name}</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: r.status === "approved" ? C.green : r.status === "rejected" ? C.red : "#b54708" }}>
+                {r.status === "approved" ? "Manjur" : r.status === "rejected" ? "Namanjur" : "Baki"}
+              </div>
+            </div>
+            <div style={{ fontSize: 12, color: "#667085" }}>{r.mobile} • {r.shop}</div>
+            <div style={{ fontSize: 12, color: "#667085" }}>{r.address} - {r.pincode}</div>
+            {r.status === "rejected" && r.reason && <div style={{ fontSize: 12, color: C.red }}>Karan: {r.reason}</div>}
+            {r.status !== "approved" && (
+              <div style={{ marginTop: 6 }}>
+                <button style={{ ...btn, padding: "4px 10px", fontSize: 13, marginRight: 6, background: C.gbg, color: C.green }} onClick={() => approveReq(r)}>Manjur</button>
+                {r.status === "pending" && <button style={{ ...btn, padding: "4px 10px", fontSize: 13, background: C.rbg, color: C.red }} onClick={() => rejectReq(r)}>Namanjur</button>}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
       <div style={{ border: "1px solid " + C.line, borderRadius: 10, padding: 12, marginBottom: 12 }}>
         <div style={{ fontWeight: 600, marginBottom: 8 }}>Navo customer banavo</div>
         <input style={input} placeholder="Customer nu naam" value={f.name} onChange={set("name")} />
@@ -259,4 +360,20 @@ export function AdminCustomers() {
       ))}
     </div>
   );
+}
+
+// ---------- Order form: login pachhi naam, mobile, sarnamu aapoaap bharvu ----------
+// App ma checkoutForm pachhi ek line: usePremiumAutofill(w, checkoutForm, setCheckoutForm);
+export function usePremiumAutofill(w, form, setForm) {
+  const p = w && w.wallet;
+  const empty = !form.name && !form.phone && !form.address && !form.pincode;
+  useEffect(() => {
+    if (!p) return;
+    setForm((f) => ({
+      name: f.name || p.name || "",
+      phone: f.phone || p.mobile || "",
+      address: f.address || p.address || "",
+      pincode: f.pincode || p.pincode || "",
+    }));
+  }, [p && p.name, p && p.mobile, p && p.address, p && p.pincode, empty]); // eslint-disable-line react-hooks/exhaustive-deps
 }

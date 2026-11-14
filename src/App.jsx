@@ -12,7 +12,7 @@ import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from
 // ✅ VERCEL ANALYTICS - Real-time traffic monitoring
 import { Analytics } from "@vercel/analytics/react";
 // ✅ PREMIUM LOGIN + WALLET
-import { useWallet, PremiumLoginButton, WalletPayBox, AdminCustomers } from "./PremiumWallet";
+import { useWallet, PremiumLoginButton, WalletPayBox, AdminCustomers, usePremiumAutofill } from "./PremiumWallet";
 import SiteSystem from "./SiteSystem";
 import HisabSystem from "./HisabSystem";
 import { SalesGate, SalesDashboard, SalesSessionBar, TraderBar, TraderForm, BLOG_ROLE, StatusPill } from "./SalesDashboards";
@@ -4354,6 +4354,7 @@ export default function ApniDukanApp() {
   }
 
   const [checkoutForm, setCheckoutForm] = useState({ name: "", phone: "", address: "", pincode: "" });
+  usePremiumAutofill(w, checkoutForm, setCheckoutForm);
   const [promoCodeInput, setPromoCodeInput] = useState("");
   const [appliedPromoCode, setAppliedPromoCode] = useState(null);
   const [promoError, setPromoError] = useState("");
